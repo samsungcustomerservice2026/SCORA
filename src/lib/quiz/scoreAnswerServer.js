@@ -6,6 +6,7 @@ import { checkQuizAnswer, isScoredQuestionType } from '../quizAnswerCheck';
 import { computeQuizPoints } from '../quizScoring';
 import { getAdminDb } from '../auth/firebaseAdmin';
 import { writeAuditLog } from '../audit/log';
+import { normalizeQuizSettings, prepareSessionQuestions } from '../quizSessionHelpers';
 
 function getQuestionTimeLimit(sess, question) {
   const q = Number(question?.timeLimitSec);
@@ -236,6 +237,29 @@ export async function hostActionServer({
         playerCount: require('firebase-admin').firestore.FieldValue.increment(-1),
       });
     }
+  } else if (action === 'settings') {
+    if (sess.status === QUIZ_SESSION_STATUS.FINISHED) {
+      const err = new Error('Game has ended');
+      err.status = 400;
+      throw err;
+    }
+    const settingsPatch = patch.settings && typeof patch.settings === 'object' ? patch.settings : {};
+    const settings = normalizeQuizSettings({ ...sess.settings, ...settingsPatch });
+    const update = { settings };
+    const reshuffleKeys = ['randomizeQuestions', 'randomizeAnswers'];
+    const needsReshuffle = reshuffleKeys.some((k) => Object.prototype.hasOwnProperty.call(settingsPatch, k));
+    if (needsReshuffle && sess.status === QUIZ_SESSION_STATUS.LOBBY && sess.templateId) {
+      const tSnap = await db.collection('quiz_templates').doc(sess.templateId).get();
+      if (tSnap.exists) {
+        const template = tSnap.data() || {};
+        update.questions = prepareSessionQuestions(template.questions || [], settings);
+      }
+    } else if (needsReshuffle && sess.status !== QUIZ_SESSION_STATUS.LOBBY) {
+      const err = new Error('Question/answer order can only be changed in the lobby before the game starts.');
+      err.status = 400;
+      throw err;
+    }
+    await sessionRef.update(update);
   } else if (action === 'pause') {
     await sessionRef.update({ status: 'PAUSED', pausedAt: nowIso });
   } else if (action === 'resume') {

@@ -170,7 +170,15 @@ service cloud.firestore {
     }
     match /quiz_live_sessions/{sessionId} {
       allow read: if true;
-      allow create, update: if isEditorPlus();
+      allow create: if isEditorPlus();
+      // Host control (status/questions) is editor+; players may only bump playerCount by +1 on join.
+      allow update: if isEditorPlus()
+        || (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['playerCount'])
+          && request.resource.data.playerCount is int
+          && resource.data.playerCount is int
+          && request.resource.data.playerCount == resource.data.playerCount + 1
+        );
       allow delete: if isSuperAdmin();
 
       match /players/{playerId} {

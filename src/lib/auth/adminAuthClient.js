@@ -9,7 +9,7 @@ import {
   signOut,
   onAuthStateChanged,
   setPersistence,
-  browserSessionPersistence,
+  browserLocalPersistence,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, query, where, limit, getDocs } from 'firebase/firestore';
 import { auth, db } from '../../firebase';
@@ -262,7 +262,7 @@ export async function signInAdmin(loginId, password) {
 
   // Prefer Firebase Auth first (email, or username → mapped email / convention)
   try {
-    await setPersistence(auth, browserSessionPersistence);
+    await setPersistence(auth, browserLocalPersistence);
     const email = await resolveLoginEmail(loginId);
     const cred = await signInWithEmailAndPassword(auth, email, password);
     clearMigrationSession();
@@ -295,7 +295,7 @@ export async function signInAdmin(loginId, password) {
   }
 
   // Email → Firebase Auth (retry path)
-  await setPersistence(auth, browserSessionPersistence);
+  await setPersistence(auth, browserLocalPersistence);
   const email = toAuthEmail(loginId);
   try {
     const cred = await signInWithEmailAndPassword(auth, email, password);

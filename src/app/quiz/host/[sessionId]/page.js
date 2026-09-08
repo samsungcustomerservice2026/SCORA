@@ -67,14 +67,30 @@ export default function QuizHostPage() {
 
   const run = useCallback(async (fn) => {
     setBusy(true);
-    try { await fn(); } catch (e) { alert(e.message); } finally { setBusy(false); }
+    try {
+      await fn();
+    } catch (e) {
+      const msg = String(e?.message || e || 'Action failed');
+      if (/insufficient permissions|unauthenticated|Admin sign-in required|Authorization/i.test(msg)) {
+        alert('Admin sign-in required to control this game.\n\nSign in on the admin portal, then open the host screen again from SCORA Challenge (same browser).');
+      } else {
+        alert(msg);
+      }
+    } finally {
+      setBusy(false);
+    }
   }, []);
 
   const updateLiveSettings = useCallback(async (patch) => {
     try {
       await updateQuizSessionSettings(sessionId, patch, hostUser);
     } catch (e) {
-      alert(e.message);
+      const msg = String(e?.message || e || 'Could not update settings');
+      if (/insufficient permissions|unauthenticated|Admin sign-in required|Authorization/i.test(msg)) {
+        alert('Admin sign-in required to change live settings.\n\nSign in on the admin portal, then reopen this host screen.');
+      } else {
+        alert(msg);
+      }
     }
   }, [sessionId, hostUser]);
 

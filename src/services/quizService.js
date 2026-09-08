@@ -297,7 +297,16 @@ export async function joinQuizSession(sessionId, nickname, { existingPlayerId = 
 }
 
 async function callHostApi(sessionId, action, extra = {}) {
-  const { authJson } = await import('../lib/auth/clientAuth');
+  const { authJson, getIdToken } = await import('../lib/auth/clientAuth');
+  const token = await getIdToken();
+  if (!token) {
+    const err = new Error(
+      'Admin sign-in required to control this game. Sign in on the admin portal, then open the host screen again (same browser).',
+    );
+    err.code = 'unauthenticated';
+    err.status = 401;
+    throw err;
+  }
   return authJson('/api/quiz/host', { sessionId, action, ...extra });
 }
 
@@ -309,34 +318,62 @@ export async function hostStartQuestion(sessionId, hostUsername) {
     if (err?.code !== 'admin_not_configured' && err?.status !== 503) throw err;
   }
   // Legacy client path only when Admin SDK is not configured (dev). Prefer server.
-  const sess = await getQuizSession(sessionId);
-  if (!sess) throw new Error('Session not found');
-  const nextIndex = (sess.currentQuestionIndex ?? -1) + 1;
-  if (nextIndex >= (sess.questions?.length || 0)) throw new Error('No more questions');
+  const { getIdToken } = await import('../lib/auth/clientAuth');
+  if (!(await getIdToken())) {
+    const err = new Error(
+      'Admin sign-in required to control this game. Sign in on the admin portal, then open the host screen again (same browser).',
+    );
+    err.code = 'unauthenticated';
+    err.status = 401;
+    throw err;
+  }
+  try {
+    const sess = await getQuizSession(sessionId);
+    if (!sess) throw new Error('Session not found');
+    const nextIndex = (sess.currentQuestionIndex ?? -1) + 1;
+    if (nextIndex >= (sess.questions?.length || 0)) throw new Error('No more questions');
 
-  const players = await getQuizSessionPlayers(sessionId);
-  const prevRanks = buildRankMap(players);
+    const players = await getQuizSessionPlayers(sessionId);
+    const prevRanks = buildRankMap(players);
 
-  await updateDoc(sessionRef(sessionId), {
-    status: QUIZ_SESSION_STATUS.QUESTION,
-    currentQuestionIndex: nextIndex,
-    questionStartedAt: new Date().toISOString(),
-    revealStartedAt: null,
-    answerCount: 0,
-    prevRanks,
-  });
-  await writeQuizLog({
-    type: 'HOST',
-    action: 'question_started',
-    actor: hostUsername,
-    sessionId,
-    pin: sess.pin,
-    division: sess.division,
-    details: { questionIndex: nextIndex, legacyClient: true },
-  });
+    await updateDoc(sessionRef(sessionId), {
+      status: QUIZ_SESSION_STATUS.QUESTION,
+      currentQuestionIndex: nextIndex,
+      questionStartedAt: new Date().toISOString(),
+      revealStartedAt: null,
+      answerCount: 0,
+      prevRanks,
+    });
+    await writeQuizLog({
+      type: 'HOST',
+      action: 'question_started',
+      actor: hostUsername,
+      sessionId,
+      pin: sess.pin,
+      division: sess.division,
+      details: { questionIndex: nextIndex, legacyClient: true },
+    });
+  } catch (err) {
+    if (/insufficient permissions|permission-denied/i.test(String(err?.message || err?.code || ''))) {
+      const e = new Error(
+        'Admin sign-in required to control this game. Sign in on the admin portal, then open the host screen again (same browser).',
+      );
+      e.code = 'permission-denied';
+      throw e;
+    }
+    throw err;
+  }
 }
 
 export async function updateQuizSessionSettings(sessionId, settingsPatch, actor) {
+  try {
+    await callHostApi(sessionId, 'settings', { settings: settingsPatch || {} });
+    const sess = await getQuizSession(sessionId);
+    return normalizeQuizSettings(sess?.settings || settingsPatch);
+  } catch (err) {
+    if (err?.code !== 'admin_not_configured' && err?.status !== 503) throw err;
+  }
+  // Legacy client path only when Admin SDK is not configured (dev).
   const sess = await getQuizSession(sessionId);
   if (!sess) throw new Error('Session not found');
   if (sess.status === QUIZ_SESSION_STATUS.FINISHED) throw new Error('Game has ended');
@@ -378,21 +415,41 @@ export async function hostRevealQuestion(sessionId, hostUsername) {
   } catch (err) {
     if (err?.code !== 'admin_not_configured' && err?.status !== 503) throw err;
   }
-  const sess = await getQuizSession(sessionId);
-  if (!sess) throw new Error('Session not found');
-  await updateDoc(sessionRef(sessionId), {
-    status: QUIZ_SESSION_STATUS.REVEAL,
-    revealStartedAt: new Date().toISOString(),
-  });
-  await writeQuizLog({
-    type: 'HOST',
-    action: 'question_revealed',
-    actor: hostUsername,
-    sessionId,
-    pin: sess.pin,
-    division: sess.division,
-    details: { questionIndex: sess.currentQuestionIndex, legacyClient: true },
-  });
+  const { getIdToken } = await import('../lib/auth/clientAuth');
+  if (!(await getIdToken())) {
+    const err = new Error(
+      'Admin sign-in required to control this game. Sign in on the admin portal, then open the host screen again (same browser).',
+    );
+    err.code = 'unauthenticated';
+    err.status = 401;
+    throw err;
+  }
+  try {
+    const sess = await getQuizSession(sessionId);
+    if (!sess) throw new Error('Session not found');
+    await updateDoc(sessionRef(sessionId), {
+      status: QUIZ_SESSION_STATUS.REVEAL,
+      revealStartedAt: new Date().toISOString(),
+    });
+    await writeQuizLog({
+      type: 'HOST',
+      action: 'question_revealed',
+      actor: hostUsername,
+      sessionId,
+      pin: sess.pin,
+      division: sess.division,
+      details: { questionIndex: sess.currentQuestionIndex, legacyClient: true },
+    });
+  } catch (err) {
+    if (/insufficient permissions|permission-denied/i.test(String(err?.message || err?.code || ''))) {
+      const e = new Error(
+        'Admin sign-in required to control this game. Sign in on the admin portal, then open the host screen again (same browser).',
+      );
+      e.code = 'permission-denied';
+      throw e;
+    }
+    throw err;
+  }
 }
 
 export async function hostEndQuiz(sessionId, hostUsername) {
@@ -402,22 +459,42 @@ export async function hostEndQuiz(sessionId, hostUsername) {
   } catch (err) {
     if (err?.code !== 'admin_not_configured' && err?.status !== 503) throw err;
   }
-  const sess = await getQuizSession(sessionId);
-  if (!sess) throw new Error('Session not found');
-  if (sess.status === QUIZ_SESSION_STATUS.FINISHED) return;
-  await updateDoc(sessionRef(sessionId), {
-    status: QUIZ_SESSION_STATUS.FINISHED,
-    finishedAt: new Date().toISOString(),
-  });
-  await writeQuizLog({
-    type: 'HOST',
-    action: 'game_finished',
-    actor: hostUsername,
-    sessionId,
-    pin: sess.pin,
-    division: sess.division,
-    details: { playerCount: sess.playerCount, legacyClient: true },
-  });
+  const { getIdToken } = await import('../lib/auth/clientAuth');
+  if (!(await getIdToken())) {
+    const err = new Error(
+      'Admin sign-in required to control this game. Sign in on the admin portal, then open the host screen again (same browser).',
+    );
+    err.code = 'unauthenticated';
+    err.status = 401;
+    throw err;
+  }
+  try {
+    const sess = await getQuizSession(sessionId);
+    if (!sess) throw new Error('Session not found');
+    if (sess.status === QUIZ_SESSION_STATUS.FINISHED) return;
+    await updateDoc(sessionRef(sessionId), {
+      status: QUIZ_SESSION_STATUS.FINISHED,
+      finishedAt: new Date().toISOString(),
+    });
+    await writeQuizLog({
+      type: 'HOST',
+      action: 'game_finished',
+      actor: hostUsername,
+      sessionId,
+      pin: sess.pin,
+      division: sess.division,
+      details: { playerCount: sess.playerCount, legacyClient: true },
+    });
+  } catch (err) {
+    if (/insufficient permissions|permission-denied/i.test(String(err?.message || err?.code || ''))) {
+      const e = new Error(
+        'Admin sign-in required to control this game. Sign in on the admin portal, then open the host screen again (same browser).',
+      );
+      e.code = 'permission-denied';
+      throw e;
+    }
+    throw err;
+  }
 }
 
 export async function hostKickPlayer(sessionId, playerId, reason = '') {

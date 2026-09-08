@@ -38,6 +38,7 @@ export async function POST(request) {
       patch: {
         playerId: body.playerId,
         reason: body.reason,
+        settings: body.settings,
       },
     });
 
