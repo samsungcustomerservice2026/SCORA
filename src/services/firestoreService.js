@@ -184,12 +184,8 @@ export const saveAcademySurveySettings = async (settings, updatedBy = 'admin') =
 };
 
 export const saveSamsungAcademySurvey = async (surveyData) => {
-    // Ensure root document exists so the structure is clear in Firebase console.
-    await setDoc(doc(db, SAMSUNG_ACADEMY_SURVEY_ROOT, SAMSUNG_ACADEMY_SURVEY_DOC), {
-        updatedAt: new Date().toISOString(),
-        type: 'SAMSUNG_ACADEMY_SURVEY_CONTAINER',
-    }, { merge: true });
-
+    // Visitors may create a response only. The parent `records` doc is admin-only,
+    // so updating it here makes every public submit fail with permission denied.
     const docRef = await addDoc(collection(db, SAMSUNG_ACADEMY_SURVEY_ROOT, SAMSUNG_ACADEMY_SURVEY_DOC, SAMSUNG_ACADEMY_SURVEYS_SUBCOLLECTION), {
         ...surveyData,
         createdAt: new Date().toISOString(),
