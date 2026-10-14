@@ -27,7 +27,10 @@ import {
   normalizeQuizSettings,
   prepareSessionQuestions,
   buildRankMap,
+  getQuestionTimeLimit,
 } from '../lib/quizSessionHelpers';
+import { checkQuizAnswer, isScoredQuestionType } from '../lib/quizAnswerCheck';
+import { computeQuizPoints } from '../lib/quizScoring';
 
 const templatesCol = () => collection(db, QUIZ_COLLECTIONS.templates);
 const sessionsCol = () => collection(db, QUIZ_COLLECTIONS.sessions);
@@ -530,13 +533,92 @@ export async function adminEndQuizSession(sessionId, actor = 'admin') {
   });
 }
 
+async function submitQuizAnswerOnDevice({
+  sessionId,
+  playerId,
+  nickname,
+  answer,
+}) {
+  const sess = await getQuizSession(sessionId);
+  if (!sess || sess.status !== QUIZ_SESSION_STATUS.QUESTION) {
+    throw new Error('Not accepting answers right now');
+  }
+
+  const qIndex = sess.currentQuestionIndex ?? 0;
+  const question = sess.questions?.[qIndex];
+  if (!question) throw new Error('Invalid question');
+
+  const existingRef = doc(db, QUIZ_COLLECTIONS.sessions, sessionId, 'answers', `${playerId}_q${qIndex}`);
+  const existingSnap = await getDoc(existingRef);
+  if (existingSnap.exists()) {
+    return {
+      correct: !!existingSnap.data()?.correct,
+      points: Number(existingSnap.data()?.points) || 0,
+      revealed: false,
+      duplicate: true,
+    };
+  }
+
+  const startedAt = sess.questionStartedAt ? new Date(sess.questionStartedAt).getTime() : Date.now();
+  const responseTimeMs = Math.max(0, Date.now() - (Number.isFinite(startedAt) ? startedAt : Date.now()));
+  const correct = checkQuizAnswer(question, answer);
+  const timeLimitSec = getQuestionTimeLimit(sess, question);
+  const scored = isScoredQuestionType(question.type);
+  const points = scored && correct
+    ? computeQuizPoints(question.points || 1000, timeLimitSec, responseTimeMs)
+    : 0;
+  const newAnswerCount = (sess.answerCount || 0) + 1;
+  const settings = normalizeQuizSettings(sess.settings);
+  const shouldReveal = settings.autoRevealWhenAllAnswered
+    && newAnswerCount >= (sess.playerCount || 0)
+    && (sess.playerCount || 0) > 0;
+
+  try {
+    await setDoc(existingRef, {
+      playerId,
+      nickname: nickname || 'Player',
+      questionIndex: qIndex,
+      questionType: question.type,
+      answer: String(answer).slice(0, 2000),
+      correct,
+      points,
+      responseTimeMs,
+      answeredAt: new Date().toISOString(),
+      division: sess.division || '',
+    });
+
+    if (points > 0) {
+      await updateDoc(doc(db, QUIZ_COLLECTIONS.sessions, sessionId, 'players', playerId), {
+        score: increment(points),
+        lastAnswerAt: new Date().toISOString(),
+      });
+    }
+
+    await updateDoc(sessionRef(sessionId), {
+      answerCount: increment(1),
+      ...(shouldReveal ? {
+        status: QUIZ_SESSION_STATUS.REVEAL,
+        revealStartedAt: new Date().toISOString(),
+      } : {}),
+    });
+  } catch (err) {
+    if (/permission-denied|insufficient permissions/i.test(String(err?.code || err?.message || ''))) {
+      throw new Error('Answer was not saved. Game rules are blocking player responses.');
+    }
+    throw err;
+  }
+
+  return { correct, points, revealed: shouldReveal, duplicate: false };
+}
+
 export async function submitQuizAnswer({
   sessionId,
   playerId,
   nickname,
   answer,
 }) {
-  // Server-authoritative scoring — never trust client-calculated points.
+  // Prefer server scoring. Production currently has no Admin SDK credential,
+  // so fall back to a direct Firestore write or the tap is dropped.
   const res = await fetch('/api/quiz/submit-answer', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -548,18 +630,21 @@ export async function submitQuizAnswer({
     }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const err = new Error(data?.error || 'Answer submit failed');
-    err.code = data?.code;
-    err.status = res.status;
-    throw err;
+  if (res.ok) {
+    return {
+      correct: !!data.correct,
+      points: Number(data.points) || 0,
+      revealed: !!data.revealed,
+      duplicate: !!data.duplicate,
+    };
   }
-  return {
-    correct: !!data.correct,
-    points: Number(data.points) || 0,
-    revealed: !!data.revealed,
-    duplicate: !!data.duplicate,
-  };
+  if (res.status === 503 || data?.code === 'admin_not_configured') {
+    return submitQuizAnswerOnDevice({ sessionId, playerId, nickname, answer });
+  }
+  const err = new Error(data?.error || 'Answer submit failed');
+  err.code = data?.code;
+  err.status = res.status;
+  throw err;
 }
 
 export async function getQuizSessionAnswers(sessionId) {

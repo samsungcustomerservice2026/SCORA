@@ -94,19 +94,23 @@ export async function scoreAnswerServer({
       };
     }
 
-    const startedAt = sess.questionStartedAt ? new Date(sess.questionStartedAt).getTime() : Date.now();
+    const startedRaw = sess.questionStartedAt;
+    const startedAt = typeof startedRaw?.toDate === 'function'
+      ? startedRaw.toDate().getTime()
+      : (startedRaw ? new Date(startedRaw).getTime() : Date.now());
     const now = Date.now();
     const timeLimitSec = getQuestionTimeLimit(sess, question);
+    const settings = normalizeSettings(sess.settings);
     const graceMs = 1500;
-    const deadline = startedAt + timeLimitSec * 1000 + graceMs;
-    if (now > deadline) {
+    const deadline = (Number.isFinite(startedAt) ? startedAt : now) + timeLimitSec * 1000 + graceMs;
+    if (!settings.unlimitedTime && now > deadline) {
       const err = new Error('Answer submitted too late');
       err.code = 'late_answer';
       err.status = 409;
       throw err;
     }
 
-    const responseTimeMs = Math.max(0, now - startedAt);
+    const responseTimeMs = Math.max(0, now - (Number.isFinite(startedAt) ? startedAt : now));
     const correct = checkQuizAnswer(question, answer);
     const scored = isScoredQuestionType(question.type);
     const points = scored && correct ? computeQuizPoints(question.points || 1000, timeLimitSec, responseTimeMs) : 0;
@@ -134,7 +138,6 @@ export async function scoreAnswerServer({
     }
 
     const newAnswerCount = (sess.answerCount || 0) + 1;
-    const settings = normalizeSettings(sess.settings);
     const shouldReveal =
       settings.autoRevealWhenAllAnswered &&
       newAnswerCount >= (sess.playerCount || 0) &&

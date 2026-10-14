@@ -20,7 +20,8 @@ const T = {
 function PlayContent() {
   const { sessionId } = useParams();
   const searchParams = useSearchParams();
-  const playerId = searchParams.get('playerId');
+  const queryPlayerId = searchParams.get('playerId');
+  const [playerId, setPlayerId] = useState(queryPlayerId || '');
   const lang = searchParams.get('lang') === 'ar' ? 'ar' : 'en';
   const t = T[lang];
 
@@ -31,6 +32,18 @@ function PlayContent() {
   const [submitting, setSubmitting] = useState(false);
   const [multiSelected, setMultiSelected] = useState([]);
   const [answerCorrect, setAnswerCorrect] = useState(null);
+
+  useEffect(() => {
+    if (queryPlayerId) {
+      setPlayerId(queryPlayerId);
+      return;
+    }
+    if (!sessionId || typeof window === 'undefined') return;
+    try {
+      const stored = sessionStorage.getItem(`quiz_player_${sessionId}`);
+      if (stored) setPlayerId(stored);
+    } catch { /* ignore */ }
+  }, [queryPlayerId, sessionId]);
 
   useEffect(() => {
     if (!sessionId) return undefined;
@@ -64,15 +77,22 @@ function PlayContent() {
   }, [isReveal, qIndex, answeredIndex, sessionId]);
 
   const pickAnswer = async (value) => {
-    if (!playerId || submitting || answeredIndex === qIndex || session?.status !== QUIZ_SESSION_STATUS.QUESTION) return;
+    if (submitting || answeredIndex === qIndex || session?.status !== QUIZ_SESSION_STATUS.QUESTION) return;
+    if (!playerId) {
+      setFeedback(lang === 'ar' ? 'أعد الانضمام حتى تُسجل إجابتك.' : 'Rejoin the game so your answer can be saved.');
+      return;
+    }
     setSubmitting(true);
+    setFeedback(lang === 'ar' ? 'جارٍ تسجيل الإجابة…' : 'Saving your answer…');
     try {
       const res = await submitQuizAnswer({ sessionId, playerId, nickname, answer: value });
       setAnsweredIndex(qIndex);
       const isPoll = question?.type === QUIZ_QUESTION_TYPES.POLL;
       resultStorage.save(res.correct, isPoll);
       setFeedback(isPoll ? t.pollDone : t.done);
-    } catch (e) { setFeedback(e.message); } finally { setSubmitting(false); }
+    } catch (e) {
+      setFeedback(e?.message || (lang === 'ar' ? 'لم يتم تسجيل الإجابة. حاول مرة أخرى.' : 'Answer was not saved. Try again.'));
+    } finally { setSubmitting(false); }
   };
 
   if (!session) return <div className="fixed inset-0 bg-black flex items-center justify-center text-zinc-500">{t.wait}</div>;
@@ -106,6 +126,9 @@ function PlayContent() {
       </div>
       <div className="flex-1 flex flex-col min-h-0 min-w-0 p-4 overflow-y-auto overflow-x-clip">
         {!isReveal && !hasAnswered && <div className="shrink-0 mb-4"><QuizLiveStats session={session} question={question} lang={lang} large /></div>}
+        {!hasAnswered && feedback && (
+          <p className={`shrink-0 mb-4 text-center text-sm font-black uppercase tracking-wide ${submitting ? 'text-zinc-400' : 'text-amber-300'}`}>{feedback}</p>
+        )}
         {isReveal && (
           <div className="shrink-0 mb-6 space-y-4">
             <QuizRevealCountdown session={session} lang={lang} />

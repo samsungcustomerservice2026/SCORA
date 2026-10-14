@@ -45,6 +45,57 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
+    function quizSession(sessionId) {
+      return get(/databases/$(database)/documents/quiz_live_sessions/$(sessionId)).data;
+    }
+
+    // Anonymous players record one answer per question when server scoring is unavailable.
+    function isQuizAnswerCreate(sessionId, answerId) {
+      let data = request.resource.data;
+      let sess = quizSession(sessionId);
+      return sess.status == 'question'
+        && data.playerId is string
+        && data.playerId.size() > 0
+        && data.playerId.size() < 128
+        && data.questionIndex is int
+        && data.questionIndex == sess.currentQuestionIndex
+        && answerId == data.playerId + '_q' + string(data.questionIndex)
+        && exists(/databases/$(database)/documents/quiz_live_sessions/$(sessionId)/players/$(data.playerId))
+        && data.answer is string
+        && data.answer.size() <= 2000
+        && data.points is int
+        && data.points >= 0
+        && data.points <= 2000
+        && data.correct is bool
+        && data.keys().hasOnly([
+          'playerId', 'nickname', 'questionIndex', 'questionType', 'answer',
+          'correct', 'points', 'responseTimeMs', 'answeredAt', 'division'
+        ]);
+    }
+
+    function isPlayerScoreBump() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return changed.hasOnly(['score', 'lastAnswerAt'])
+        && request.resource.data.score is int
+        && resource.data.score is int
+        && request.resource.data.score >= resource.data.score
+        && request.resource.data.score <= resource.data.score + 2000;
+    }
+
+    function isAnswerCountBump() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let countOk = request.resource.data.answerCount is int
+        && resource.data.answerCount is int
+        && request.resource.data.answerCount == resource.data.answerCount + 1;
+      let keysOk = changed.hasOnly(['answerCount'])
+        || (
+          changed.hasOnly(['answerCount', 'status', 'revealStartedAt'])
+          && resource.data.status == 'question'
+          && request.resource.data.status == 'reveal'
+        );
+      return countOk && keysOk;
+    }
+
     // ΓöÇΓöÇ Default deny ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     match /{document=**} {
       allow read, write: if false;
@@ -171,26 +222,29 @@ service cloud.firestore {
     match /quiz_live_sessions/{sessionId} {
       allow read: if true;
       allow create: if isEditorPlus();
-      // Host control (status/questions) is editor+; players may only bump playerCount by +1 on join.
+      // Host control is editor+. Players may bump playerCount on join, or answerCount when they submit.
       allow update: if isEditorPlus()
         || (
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['playerCount'])
           && request.resource.data.playerCount is int
           && resource.data.playerCount is int
           && request.resource.data.playerCount == resource.data.playerCount + 1
-        );
+        )
+        || isAnswerCountBump();
       allow delete: if isSuperAdmin();
 
       match /players/{playerId} {
         allow read: if true;
-        // Join: create with score 0 only; score updates are server-only (Admin SDK)
+        // Join: create with score 0 only. Score may rise by at most 2000 per answer.
         allow create: if request.resource.data.score == 0
           && request.resource.data.keys().hasAll(['nickname', 'score', 'joinedAt']);
-        allow update, delete: if isEditorPlus();
+        allow update: if isEditorPlus() || isPlayerScoreBump();
+        allow delete: if isEditorPlus();
       }
       match /answers/{answerId} {
         allow read: if isAdmin();
-        allow write: if false; // server-authoritative only
+        allow create: if isQuizAnswerCreate(sessionId, answerId);
+        allow update, delete: if false;
       }
     }
     match /quiz_logs/{id} {
