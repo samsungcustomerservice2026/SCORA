@@ -548,16 +548,23 @@ async function submitQuizAnswerOnDevice({
   const question = sess.questions?.[qIndex];
   if (!question) throw new Error('Invalid question');
 
+  // Players cannot read the answers collection. Remember the send on this device
+  // instead of getDoc, which Firestore rejects as missing permissions.
+  const sentKey = `quiz_sent_${sessionId}_q${qIndex}`;
+  try {
+    const raw = sessionStorage.getItem(sentKey);
+    if (raw) {
+      const prev = JSON.parse(raw);
+      return {
+        correct: !!prev.correct,
+        points: Number(prev.points) || 0,
+        revealed: false,
+        duplicate: true,
+      };
+    }
+  } catch { /* ignore */ }
+
   const existingRef = doc(db, QUIZ_COLLECTIONS.sessions, sessionId, 'answers', `${playerId}_q${qIndex}`);
-  const existingSnap = await getDoc(existingRef);
-  if (existingSnap.exists()) {
-    return {
-      correct: !!existingSnap.data()?.correct,
-      points: Number(existingSnap.data()?.points) || 0,
-      revealed: false,
-      duplicate: true,
-    };
-  }
 
   const startedAt = sess.questionStartedAt ? new Date(sess.questionStartedAt).getTime() : Date.now();
   const responseTimeMs = Math.max(0, Date.now() - (Number.isFinite(startedAt) ? startedAt : Date.now()));
@@ -607,6 +614,10 @@ async function submitQuizAnswerOnDevice({
     }
     throw err;
   }
+
+  try {
+    sessionStorage.setItem(sentKey, JSON.stringify({ correct, points }));
+  } catch { /* ignore */ }
 
   return { correct, points, revealed: shouldReveal, duplicate: false };
 }
