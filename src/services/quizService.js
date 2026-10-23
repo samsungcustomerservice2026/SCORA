@@ -171,7 +171,9 @@ export async function startQuizLiveSession({ templateId, hostUsername }) {
   const pin = await allocateUniquePin();
   const division = QUIZ_DIVISIONS.includes(template.division) ? template.division : 'MX';
 
-  const settings = normalizeQuizSettings(template.settings);
+  // Templates saved before auto-play defaulted on stored autoPlay: false; every
+  // new game starts with it on and the host can turn it off from the host screen.
+  const settings = normalizeQuizSettings({ ...template.settings, autoPlay: true });
   const questions = prepareSessionQuestions(template.questions, settings);
 
   const sessionPayload = {

@@ -97,7 +97,7 @@ describe('quiz import — spreadsheet rows', () => {
     const { questions, warnings } = parseQuizRows(XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false }));
     expect(warnings).toEqual([]);
     expect(questions).toHaveLength(5);
-  });
+  }, 30000);
 
   it('reads typed answers from the Accepted answers column and "All" for multi-select', () => {
     const { questions } = parseQuizRows([

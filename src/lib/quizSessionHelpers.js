@@ -19,7 +19,7 @@ export function normalizeQuizSettings(raw = {}) {
     nicknameGenerator: !!raw.nicknameGenerator,
     twoStepJoin: !!raw.twoStepJoin,
     autoRevealWhenAllAnswered: raw.autoRevealWhenAllAnswered !== false,
-    autoPlay: !!raw.autoPlay,
+    autoPlay: raw.autoPlay !== false,
     randomizeQuestions: !!raw.randomizeQuestions,
     randomizeAnswers: raw.randomizeAnswers !== false,
     defaultLanguage: ['en', 'ar', 'both'].includes(raw.defaultLanguage) ? raw.defaultLanguage : 'en',

@@ -29,7 +29,7 @@ export const QUIZ_COLLECTIONS = {
 };
 
 export const DEFAULT_QUIZ_SETTINGS = {
-  autoPlay: false,
+  autoPlay: true,
   autoRevealWhenAllAnswered: true,
   randomizeQuestions: false,
   randomizeAnswers: true,
