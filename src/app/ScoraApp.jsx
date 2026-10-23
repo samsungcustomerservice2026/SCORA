@@ -258,6 +258,13 @@ const ADMIN_SESSION_OK_KEY = 'adminSessionOk_v1';
 const ADMIN_PROFILE_CACHE_KEY = 'adminSessionProfile_v1';
 const ACADEMY_SURVEY_SETTINGS_CACHE_KEY = 'academySurveySettingsCache_v1';
 
+/** Gold / silver / bronze numerals for the PQA top-three podium. */
+const PODIUM_MEDAL_STYLES = {
+  1: { gradient: 'from-yellow-200 via-yellow-400 to-amber-600', glow: 'drop-shadow-[0_0_14px_rgba(250,204,21,0.45)]' },
+  2: { gradient: 'from-white via-zinc-300 to-zinc-500', glow: 'drop-shadow-[0_0_12px_rgba(212,212,216,0.35)]' },
+  3: { gradient: 'from-orange-200 via-orange-500 to-amber-800', glow: 'drop-shadow-[0_0_12px_rgba(234,88,12,0.4)]' },
+};
+
 const ADMIN_RESTORABLE_VIEWS = new Set(['ADMIN_DASHBOARD', 'PROFILE_MGMT', 'EXTERNAL_LOGS']);
 
 function readCachedAdminProfile() {
@@ -3227,6 +3234,15 @@ const PageContent = ({ initialView = null, initialAdminPortal = false } = {}) =>
                 : 'h-[4.25rem] w-[4.25rem] sm:h-16 sm:w-16 md:h-[5.25rem] md:w-[5.25rem]'
             }`}
           />
+        </div>
+      );
+    }
+    const medal = PODIUM_MEDAL_STYLES[displayRank];
+    if (medal) {
+      return (
+        <div className={`mb-1 flex items-baseline justify-center font-black italic leading-none tracking-tighter ${medal.glow}`}>
+          <span className={`bg-clip-text text-transparent bg-gradient-to-b ${medal.gradient} text-lg sm:text-2xl md:text-3xl`}>#</span>
+          <span className={`bg-clip-text text-transparent bg-gradient-to-b ${medal.gradient} text-3xl sm:text-5xl md:text-6xl`}>{displayRank}</span>
         </div>
       );
     }
