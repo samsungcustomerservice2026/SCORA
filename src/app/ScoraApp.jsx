@@ -258,7 +258,7 @@ const ADMIN_SESSION_OK_KEY = 'adminSessionOk_v1';
 const ADMIN_PROFILE_CACHE_KEY = 'adminSessionProfile_v1';
 const ACADEMY_SURVEY_SETTINGS_CACHE_KEY = 'academySurveySettingsCache_v1';
 
-/** Gold / silver / bronze numerals for the PQA top-three podium. */
+/** Gold / silver / bronze numerals for the TCS and PQA top-three podium. */
 const PODIUM_MEDAL_STYLES = {
   1: { gradient: 'from-yellow-200 via-yellow-400 to-amber-600', glow: 'drop-shadow-[0_0_14px_rgba(250,204,21,0.45)]' },
   2: { gradient: 'from-white via-zinc-300 to-zinc-500', glow: 'drop-shadow-[0_0_12px_rgba(212,212,216,0.35)]' },
@@ -3207,24 +3207,29 @@ const PageContent = ({ initialView = null, initialAdminPortal = false } = {}) =>
     return 'engineers';
   };
 
-  /** TCS: tier emblem + numeric rank. PQA: # only. */
+  const renderPodiumMedalNumeral = (displayRank) => {
+    const medal = PODIUM_MEDAL_STYLES[displayRank];
+    if (!medal) return null;
+    return (
+      <div className={`mb-1 flex items-baseline justify-center font-black italic leading-none tracking-tighter ${medal.glow}`}>
+        <span className={`bg-clip-text text-transparent bg-gradient-to-b ${medal.gradient} text-lg sm:text-2xl md:text-3xl`}>#</span>
+        <span className={`bg-clip-text text-transparent bg-gradient-to-b ${medal.gradient} text-3xl sm:text-5xl md:text-6xl`}>{displayRank}</span>
+      </div>
+    );
+  };
+
+  /** TCS: medal numeral + tier emblem. PQA: medal numeral only. */
   const renderRankBadgePodium = (displayRank, eng, compact = false) => {
     if (isTcsMode && eng) {
       const tier = resolveTierByMode(eng);
       const meta = TIER_META[tier] || TIER_META.Bronze;
-      const rankTone =
-        displayRank === 1
-          ? 'text-yellow-300 border-yellow-500/50 bg-yellow-500/10'
-          : displayRank === 2
-            ? 'text-zinc-200 border-zinc-300/40 bg-zinc-300/10'
-            : displayRank === 3
-              ? 'text-orange-300 border-orange-500/40 bg-orange-500/10'
-              : 'text-zinc-300 border-zinc-500/30 bg-zinc-500/10';
       return (
         <div className="mb-1 flex flex-col items-center sm:mb-2">
-          <div className={`mb-1 px-2.5 py-0.5 rounded-full border text-[10px] font-black uppercase tracking-widest ${rankTone}`}>
-            #{displayRank}
-          </div>
+          {renderPodiumMedalNumeral(displayRank) || (
+            <div className="mb-1 px-2.5 py-0.5 rounded-full border text-[10px] font-black uppercase tracking-widest text-zinc-300 border-zinc-500/30 bg-zinc-500/10">
+              #{displayRank}
+            </div>
+          )}
           <img
             src={meta.img}
             alt={tier || 'Tier'}
@@ -3237,15 +3242,8 @@ const PageContent = ({ initialView = null, initialAdminPortal = false } = {}) =>
         </div>
       );
     }
-    const medal = PODIUM_MEDAL_STYLES[displayRank];
-    if (medal) {
-      return (
-        <div className={`mb-1 flex items-baseline justify-center font-black italic leading-none tracking-tighter ${medal.glow}`}>
-          <span className={`bg-clip-text text-transparent bg-gradient-to-b ${medal.gradient} text-lg sm:text-2xl md:text-3xl`}>#</span>
-          <span className={`bg-clip-text text-transparent bg-gradient-to-b ${medal.gradient} text-3xl sm:text-5xl md:text-6xl`}>{displayRank}</span>
-        </div>
-      );
-    }
+    const medalNumeral = renderPodiumMedalNumeral(displayRank);
+    if (medalNumeral) return medalNumeral;
     return (
       <div className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">#{displayRank}</div>
     );
@@ -6488,7 +6486,7 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
               <button
                 type="button"
                 onClick={() => navigateTo('APP_SELECTION')}
-                className="lg:absolute lg:top-28 lg:left-8 xl:left-24 flex items-center gap-3 text-[10px] font-black text-zinc-500 uppercase tracking-widest hover:text-white transition-all bg-white/5 px-8 py-4 rounded-full border border-white/10 mb-8 lg:mb-0"
+                className="lg:self-start lg:ml-8 xl:ml-24 flex items-center gap-3 text-[10px] font-black text-zinc-500 uppercase tracking-widest hover:text-white transition-all bg-white/5 px-8 py-4 rounded-full border border-white/10 mb-8 lg:mb-0"
               >
                 <ChevronLeft className="w-4 h-4" /> Back to Gateway
               </button>
@@ -6587,7 +6585,7 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
               <button
                 type="button"
                 onClick={() => navigateTo('APP_SELECTION')}
-                className="lg:absolute lg:top-28 lg:left-8 xl:left-24 flex items-center gap-3 text-[10px] font-black text-zinc-500 uppercase tracking-widest hover:text-white transition-all bg-white/5 px-8 py-4 rounded-full border border-white/10 mb-8 lg:mb-0"
+                className="lg:self-start lg:ml-8 xl:ml-24 flex items-center gap-3 text-[10px] font-black text-zinc-500 uppercase tracking-widest hover:text-white transition-all bg-white/5 px-8 py-4 rounded-full border border-white/10 mb-8 lg:mb-0"
               >
                 <ChevronLeft className="w-4 h-4" /> Back to Gateway
               </button>
