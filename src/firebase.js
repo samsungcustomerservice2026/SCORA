@@ -9,7 +9,7 @@ import { getStorage } from "firebase/storage";
 import { getAuth } from "firebase/auth";
 import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: "AIzaSyCeD7Xrt6kwPWVgjNIrpwy0jnI8yQso1iM",
   authDomain: "tcs-for-engineers.firebaseapp.com",
   projectId: "tcs-for-engineers",

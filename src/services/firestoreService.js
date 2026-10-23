@@ -70,9 +70,15 @@ export const deleteEngineerPermanent = async (id, collectionName = ENGINEERS_COL
 };
 
 
-// Admins — Firestore rules let a client read only its own admins/{uid} doc,
-// so the directory and every write go through the Admin SDK endpoint.
+// Admins — the Admin SDK endpoint is used when the server has a service
+// account (it also keeps custom claims in sync). Without one, a super admin
+// manages admins/{uid} directly; Firestore rules restrict that to super admins.
 const ADMIN_ACCOUNTS_API = '/api/admin/accounts';
+const ADMIN_PROVISIONING_APP = 'admin-provisioning';
+
+function isAdminSdkMissing(err) {
+    return err?.status === 503 || err?.code === 'admin_not_configured';
+}
 
 /** Fields the accounts endpoint accepts; credentials live in Firebase Auth. */
 const ADMIN_WRITABLE_FIELDS = [
@@ -90,31 +96,108 @@ export const getAdmins = async () => {
     const { authFetch } = await import('../lib/auth/clientAuth');
     try {
         const res = await authFetch(ADMIN_ACCOUNTS_API, { method: 'GET' });
-        if (!res.ok) return [];
-        const data = await res.json().catch(() => ({}));
-        return Array.isArray(data?.admins) ? data.admins : [];
+        if (res.ok) {
+            const data = await res.json().catch(() => ({}));
+            return Array.isArray(data?.admins) ? data.admins : [];
+        }
+        if (res.status !== 503) return [];
     } catch (err) {
         console.warn('admin directory load failed:', err?.message || err);
-        return [];
     }
+    // Readable directly by super admins only; other admins get an empty list.
+    const rows = await softFirestore(() => readCollection('admins'), []);
+    const credentialFields = new Set(['passwordB64', 'password_b64', 'password', 'pwd']);
+    return rows.map((row) =>
+        Object.fromEntries(Object.entries(row).filter(([key]) => !credentialFields.has(key))),
+    );
+};
+
+/**
+ * Create the Firebase Auth login on a secondary app instance so the super
+ * admin creating it stays signed in, then write the admins/{uid} profile.
+ * An existing login is linked only when the given password matches it.
+ * Returns { uid, existingUser }.
+ */
+export const createAdminAccount = async ({ email, password, profile }) => {
+    const { initializeApp, getApps } = await import('firebase/app');
+    const {
+        getAuth,
+        createUserWithEmailAndPassword,
+        signInWithEmailAndPassword,
+        signOut,
+    } = await import('firebase/auth');
+    const { firebaseConfig } = await import('../firebase');
+
+    const secondary =
+        getApps().find((a) => a.name === ADMIN_PROVISIONING_APP) ||
+        initializeApp(firebaseConfig, ADMIN_PROVISIONING_APP);
+    const secondaryAuth = getAuth(secondary);
+
+    let cred;
+    let existingUser = false;
+    try {
+        cred = await createUserWithEmailAndPassword(secondaryAuth, email, password);
+    } catch (err) {
+        if (err?.code !== 'auth/email-already-in-use') throw err;
+        try {
+            cred = await signInWithEmailAndPassword(secondaryAuth, email, password);
+            existingUser = true;
+        } catch {
+            const e = new Error(
+                'A sign-in with this email or username already exists with a different password. Use another username or email.',
+            );
+            e.code = 'admin/login-exists';
+            throw e;
+        }
+    }
+
+    const uid = cred.user.uid;
+    try {
+        const now = new Date().toISOString();
+        await setDoc(doc(db, 'admins', uid), {
+            ...profile,
+            email,
+            firebaseUid: uid,
+            createdAt: now,
+            updatedAt: now,
+        });
+    } finally {
+        await signOut(secondaryAuth).catch(() => {});
+    }
+    return { uid, existingUser };
 };
 
 export const saveAdmin = async (admin) => {
     if (!admin?.id) {
-        throw new Error('New admin accounts are created through /api/admin/bootstrap.');
+        throw new Error('New admin accounts are created with createAdminAccount.');
     }
     const { authJson } = await import('../lib/auth/clientAuth');
     const patch = { id: admin.id };
     for (const field of ADMIN_WRITABLE_FIELDS) {
         if (admin[field] !== undefined) patch[field] = admin[field];
     }
-    await authJson(ADMIN_ACCOUNTS_API, patch, 'PATCH');
+    try {
+        await authJson(ADMIN_ACCOUNTS_API, patch, 'PATCH');
+    } catch (err) {
+        if (!isAdminSdkMissing(err)) throw err;
+        const { id, ...fields } = patch;
+        await setDoc(
+            doc(db, 'admins', id),
+            { ...fields, updatedAt: new Date().toISOString() },
+            { merge: true },
+        );
+    }
     return admin.id;
 };
 
 export const deleteAdmin = async (id) => {
     const { authJson } = await import('../lib/auth/clientAuth');
-    await authJson(ADMIN_ACCOUNTS_API, { id }, 'DELETE');
+    try {
+        await authJson(ADMIN_ACCOUNTS_API, { id }, 'DELETE');
+    } catch (err) {
+        if (!isAdminSdkMissing(err)) throw err;
+        await deleteDoc(doc(db, 'admins', id));
+    }
 };
 
 // TCS Dashboard Winners (Top 6 by quarter/product)

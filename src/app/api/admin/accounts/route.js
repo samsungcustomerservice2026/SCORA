@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireAuth, requireAdmin, requireSuperAdmin, authErrorResponse } from '../../../../lib/auth/serverAuth';
 import { getAdminAuth, getAdminDb, isFirebaseAdminConfigured } from '../../../../lib/auth/firebaseAdmin';
 import { writeAuditLog } from '../../../../lib/audit/log';
+import { ACCESS_SCOPES, sanitizePermissions } from '../../../../lib/adminPermissions';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -100,6 +101,14 @@ export async function PATCH(request) {
     const patch = {};
     for (const [key, value] of Object.entries(body)) {
       if (WRITABLE_FIELDS.has(key)) patch[key] = value;
+    }
+    if ('permissions' in patch) {
+      const clean = sanitizePermissions(patch.permissions);
+      if (clean) patch.permissions = clean;
+      else delete patch.permissions;
+    }
+    if ('access' in patch && !ACCESS_SCOPES.includes(String(patch.access || '').toUpperCase())) {
+      delete patch.access;
     }
     if (!Object.keys(patch).length) {
       return NextResponse.json({ error: 'No updatable fields supplied' }, { status: 400 });

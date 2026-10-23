@@ -51,7 +51,7 @@ import {
 import SamsungAcademySurveyDashboard from '../components/admin/SamsungAcademySurveyDashboard';
 import ArabicFeedbackDashboard from '../components/admin/ArabicFeedbackDashboard';
 import QuizAdminPanel from '../components/quiz/QuizAdminPanel';
-import AdminAccountsPanel, { EMPTY_ADMIN_FORM } from '../components/admin/AdminAccountsPanel';
+import AdminAccountsPanel, { EMPTY_ADMIN_FORM, SUPER_ADMIN_AUTHORITY } from '../components/admin/AdminAccountsPanel';
 import AdminPortalShell from '../components/admin/AdminPortalShell';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { MotionCard, MotionStage, usePortalLaunch } from '../components/transitions/PortalLaunch';
@@ -67,6 +67,7 @@ import ConsultantViewer from '../components/employee/ConsultantViewer';
 import AddToHomeScreenSheet from '../components/pwa/AddToHomeScreenSheet';
 import NotifyAlertsBanner from '../components/pwa/NotifyAlertsBanner';
 import PublicLinkQr from '../components/admin/PublicLinkQr';
+import { ADMIN_USERNAME_PATTERN, internalAdminEmail } from '../lib/auth/adminLoginId';
 import { useVisitorEngagement } from '../hooks/useVisitorEngagement';
 import { useEmployeeAuth } from '../hooks/useEmployeeAuth';
 import { recordFunnelStep } from '../services/visitorEngagementService';
@@ -92,6 +93,7 @@ import {
   buildPermissionsForSave,
   permissionsForForm,
   syncScopePermissions,
+  DEFAULT_FORM_PERMISSIONS,
 } from '../lib/adminPermissions';
 import { cloneSnapshot, pushUndoEntry, popUndoEntry } from '../lib/adminUndo';
 
@@ -106,7 +108,7 @@ import {
   DEFAULT_ENGINEER_PHOTO_URL,
 } from '../constants';
 import dynamic from 'next/dynamic';
-import { getEngineers, getHiddenEngineers, saveEngineer as saveEngineerToDb, archiveEngineer, deleteEngineerPermanent, getAdmins, saveAdmin as saveAdminToDb, deleteAdmin as deleteAdminFromDb, saveFeedback as saveFeedbackToDb, saveSamsungAcademySurvey as saveSamsungAcademySurveyToDb, getSamsungAcademySurveys as getSamsungAcademySurveysFromDb, getTcsDashboardWinners, saveTcsDashboardWinners, getAcademySurveySettings, saveAcademySurveySettings, getSurveyDefinitions } from '../services/firestoreService';
+import { getEngineers, getHiddenEngineers, saveEngineer as saveEngineerToDb, archiveEngineer, deleteEngineerPermanent, getAdmins, createAdminAccount, saveAdmin as saveAdminToDb, deleteAdmin as deleteAdminFromDb, saveFeedback as saveFeedbackToDb, saveSamsungAcademySurvey as saveSamsungAcademySurveyToDb, getSamsungAcademySurveys as getSamsungAcademySurveysFromDb, getTcsDashboardWinners, saveTcsDashboardWinners, getAcademySurveySettings, saveAcademySurveySettings, getSurveyDefinitions } from '../services/firestoreService';
 import { normalizePqaPartnerKey, mapPqaSheetPartnerKeyToOfficial, PQA_OFFICIAL_MX_PARTNERS } from '../lib/pqaPartnerMap.js';
 import {
   parseTcsScoreSheetRows,
@@ -196,13 +198,12 @@ import {
   signInAdmin,
   signOutAdmin,
   subscribeAdminAuth,
+  watchAdminProfile,
   clearAdminUiPrefs,
   readMigrationSession,
 } from '../lib/auth/adminAuthClient';
-import { authJson } from '../lib/auth/clientAuth';
-
 /**
- * Bootstrap admins via server: POST /api/admin/bootstrap with BOOTSTRAP_ADMIN_SECRET.
+ * Super admins add admins from Manage Accounts (Firebase Auth + admins/{uid}).
  * Do NOT put passwords in NEXT_PUBLIC_* variables.
  */
 
@@ -2046,6 +2047,17 @@ const PageContent = ({ initialView = null, initialAdminPortal = false } = {}) =>
     return () => unsub();
   }, [isAdminPortal]);
 
+  const liveAdminUid = isLogged ? currentUser?.uid || '' : '';
+  const liveAdminEmail = currentUser?.email || '';
+  useEffect(() => {
+    if (!liveAdminUid) return undefined;
+    return watchAdminProfile(liveAdminUid, liveAdminEmail, (profile) => {
+      if (!profile) return;
+      setCurrentUser((prev) => (prev?.uid === profile.uid ? { ...prev, ...profile } : prev));
+      writeCachedAdminProfile(profile);
+    });
+  }, [liveAdminUid, liveAdminEmail]);
+
   // Hard lock: admin portal with no session can only show the login screen.
   useEffect(() => {
     if (isAdminPortal && !isLogged && !adminSessionOkRef.current && view !== 'ADMIN_LOGIN') {
@@ -2650,8 +2662,8 @@ const PageContent = ({ initialView = null, initialAdminPortal = false } = {}) =>
   }, [navigateTo, resetEngineerFeedback]);
 
   const handleAcademySurveyPopupToggle = async (enabled) => {
-    if (!canWriteModule(currentUser, 'survey')) {
-      message.warning('You do not have write access to survey settings.');
+    if (!canWriteModule(currentUser, 'display')) {
+      message.warning('You do not have write access to display settings.');
       writeLog({
         type: 'ADMIN_ACTION',
         actor: currentUser?.username || 'admin',
@@ -2694,8 +2706,8 @@ const PageContent = ({ initialView = null, initialAdminPortal = false } = {}) =>
   };
 
   const handleFeedbackEnabledToggle = async (enabled) => {
-    if (!canWriteModule(currentUser, 'feedback')) {
-      message.warning('You do not have write access to feedback settings.');
+    if (!canWriteModule(currentUser, 'display')) {
+      message.warning('You do not have write access to display settings.');
       writeLog({
         type: 'ADMIN_ACTION',
         actor: currentUser?.username || 'admin',
@@ -2738,9 +2750,8 @@ const PageContent = ({ initialView = null, initialAdminPortal = false } = {}) =>
   };
 
   const handleNotifyAlertsToggle = async (enabled) => {
-    const isPlatformAdmin = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN';
-    if (!isPlatformAdmin) {
-      message.warning('You do not have access to notification settings.');
+    if (!canWriteModule(currentUser, 'display')) {
+      message.warning('You do not have write access to display settings.');
       writeLog({
         type: 'ADMIN_ACTION',
         actor: currentUser?.username || 'admin',
@@ -3049,6 +3060,26 @@ const PageContent = ({ initialView = null, initialAdminPortal = false } = {}) =>
     () => (isPqaMode ? canReadModule(currentUser, 'pqa') : canReadModule(currentUser, 'tcs')),
     [currentUser, isPqaMode]
   );
+
+  const adminTabs = useMemo(() => {
+    if (!currentUser) return [];
+    return [
+      { key: 'data', label: 'Data', show: canAccessModule(currentUser, 'tcs') || canAccessModule(currentUser, 'pqa') },
+      { key: 'display', label: 'Display', show: canAccessModule(currentUser, 'display') },
+      { key: 'survey', label: 'Survey', show: canAccessModule(currentUser, 'survey') || canAccessModule(currentUser, 'surveyForms') },
+      { key: 'feedback', label: 'Feedback', show: canAccessModule(currentUser, 'feedback') },
+      { key: 'scora-challenge', label: 'SCORA Challenge', show: canAccessModule(currentUser, 'quiz') },
+      { key: 'knowledge-base', label: 'Knowledge Base', show: canAccessModule(currentUser, 'knowledge') },
+      { key: 'insights', label: 'Insights', show: currentUser.role === 'SUPER_ADMIN' },
+      { key: 'system', label: 'System', show: currentUser.role === 'SUPER_ADMIN' },
+    ].filter((tab) => tab.show);
+  }, [currentUser]);
+
+  // The open tab survives a logout/login on the same page; keep it within what the new user may see.
+  useEffect(() => {
+    if (!adminTabs.length || adminTabs.some((tab) => tab.key === adminPanelTab)) return;
+    setAdminPanelTab(adminTabs[0].key);
+  }, [adminTabs, adminPanelTab]);
 
   useEffect(() => {
     if (!appMode?.startsWith('TCS')) return;
@@ -4539,7 +4570,7 @@ const PageContent = ({ initialView = null, initialAdminPortal = false } = {}) =>
       const { profile, migration } = await signInAdmin(loginUser, loginPass);
       finishAdminSession(profile, { migration }, ipInfo);
     } catch (err) {
-      console.error('Admin login failed:', err?.code, err?.message || err);
+      console.warn('Admin login failed:', err?.code || '', err?.message || err);
       message.error(err?.message || 'Login failed', 8);
       writeLog({
         type: 'FAILED_LOGIN',
@@ -4892,45 +4923,59 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
 
 
   const handleAddAdmin = async () => {
-    if (!newAdminData.username || !newAdminData.password || !newAdminData.name || !newAdminData.email) {
-      message.warning('Please fill name, username, email, and password');
+    if (!newAdminData.username || !newAdminData.password || !newAdminData.name) {
+      message.warning('Please fill name, username, and password');
       return;
     }
     if (currentUser?.role !== 'SUPER_ADMIN') {
       message.error('Only SUPER_ADMIN can create admins');
       return;
     }
-    const role = newAdminData.role || 'ADMIN';
-    const claimsRole =
-      role === 'SUPER_ADMIN' ? 'super_admin' : String(role).toLowerCase() === 'editor' ? 'editor' : String(role).toLowerCase() === 'viewer' ? 'viewer' : 'admin';
-    const email = String(newAdminData.email || '').trim().toLowerCase();
-    if (!email.includes('@')) {
-      message.warning('Enter a valid email for Firebase Auth');
+    const role = newAdminData.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'ADMIN';
+    const username = newAdminData.username.trim();
+    if (!ADMIN_USERNAME_PATTERN.test(username)) {
+      message.warning('Username: 3–40 letters or numbers; dots, dashes and underscores allowed inside (no spaces).');
       return;
     }
+    const typedEmail = String(newAdminData.email || '').trim().toLowerCase();
+    if (typedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(typedEmail)) {
+      message.warning('Enter a valid email, or leave it empty to sign in with the username.');
+      return;
+    }
+    const email = typedEmail || internalAdminEmail(username);
+    if (String(newAdminData.password).length < 8) {
+      message.warning('Password must be at least 8 characters.');
+      return;
+    }
+    if (admins.some((a) => String(a.username || '').toLowerCase() === username.toLowerCase())) {
+      message.warning('Username already in use.');
+      return;
+    }
+    if (admins.some((a) => String(a.email || '').toLowerCase() === email)) {
+      message.warning('An admin with this email already exists. Edit that account instead.');
+      return;
+    }
+    const profile = {
+      username,
+      name: newAdminData.name.trim(),
+      role,
+      access: role === 'SUPER_ADMIN' ? 'ALL' : newAdminData.access || 'TCS_ONLY',
+      permissions: buildPermissionsForSave(newAdminData, role),
+    };
     try {
-      const data = await authJson('/api/admin/bootstrap', {
-        email,
-        password: newAdminData.password,
-        username: newAdminData.username.trim(),
-        name: newAdminData.name.trim(),
-        role: claimsRole,
-      });
-      const newAdmin = {
-        id: data.uid,
-        uid: data.uid,
-        firebaseUid: data.uid,
-        username: newAdminData.username.trim(),
-        email,
-        name: newAdminData.name.trim(),
-        role,
-        access: newAdminData.access || 'TCS_ONLY',
-        permissions: buildPermissionsForSave(newAdminData, role),
-      };
-      setAdmins((prev) => [...prev, newAdmin]);
+      const data = await createAdminAccount({ email, password: newAdminData.password, profile });
+      const newAdmin = { id: data.uid, firebaseUid: data.uid, email, ...profile };
+      setAdmins((prev) => [...prev.filter((a) => a.id !== newAdmin.id), newAdmin]);
+      getAdmins().then((rows) => { if (rows.length) setAdmins(rows); }).catch(() => {});
       setNewAdminData({ ...EMPTY_ADMIN_FORM });
       setShowAddAdmin(false);
-      message.success('New admin created via Firebase Auth');
+      message.success(
+        data.existingUser
+          ? 'Existing sign-in linked as admin. Their current password is unchanged.'
+          : typedEmail
+            ? 'New admin created. They sign in with this email and password.'
+            : `New admin created. They sign in with username "${username}" and this password.`,
+      );
       writeLog({
         type: 'ADMIN_ACTION',
         actor: currentUser?.username || 'admin',
@@ -4941,12 +4986,14 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
       });
     } catch (error) {
       console.error('Error adding admin:', error);
-      const msg = String(error?.message || '');
-      if (/admin_not_configured|Admin SDK|503/i.test(msg) || error?.status === 503) {
-        message.error('Add FIREBASE_SERVICE_ACCOUNT_JSON to .env.local to create Auth users from the app');
-      } else {
-        message.error(error?.message || 'Failed to add admin');
-      }
+      const reason = {
+        'auth/invalid-email': 'That email address is not valid.',
+        'auth/weak-password': 'Password must be at least 8 characters.',
+        'auth/operation-not-allowed': 'Email/password sign-in is disabled in Firebase Authentication.',
+        'auth/too-many-requests': 'Too many attempts. Wait a minute and try again.',
+        'permission-denied': 'Only a super admin can add admins. If you are one, the latest database rules may not be deployed yet.',
+      }[error?.code];
+      message.error(reason || error?.message || 'Failed to add admin');
     }
   };
 
@@ -4989,21 +5036,37 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
     });
   };
 
-  const handleQuickAdminAccessChange = async (admin, newAccess) => {
+  const handleQuickAdminAccessChange = async (admin, authority) => {
     if (currentUser?.role !== 'SUPER_ADMIN') return;
+    if (admin.id === currentUser?.id) {
+      message.warning('You cannot change your own authority.');
+      return;
+    }
+    const toSuper = authority === SUPER_ADMIN_AUTHORITY;
+    const wasSuper = admin.role === 'SUPER_ADMIN';
+    const basePermissions = wasSuper
+      ? { ...DEFAULT_FORM_PERMISSIONS }
+      : admin.permissions || permissionsForForm(admin);
     const updated = {
       ...admin,
-      access: newAccess,
-      permissions: syncScopePermissions(newAccess, admin.permissions || permissionsForForm(admin)),
+      role: toSuper ? 'SUPER_ADMIN' : 'ADMIN',
+      access: toSuper ? 'ALL' : authority,
+      permissions: toSuper
+        ? buildPermissionsForSave({}, 'SUPER_ADMIN')
+        : syncScopePermissions(authority, basePermissions),
       updatedAt: new Date().toISOString(),
       updatedBy: currentUser?.username || 'admin',
     };
     try {
-      await persistAdminUpdate(updated, 'Updated admin access scope');
-      message.success(`Access updated for ${admin.username}`);
+      await persistAdminUpdate(updated, toSuper ? 'Promoted admin to super admin' : 'Updated admin authority');
+      message.success(
+        toSuper
+          ? `${admin.name || admin.username} is now a super admin (global). They get full access on their next sign-in or page refresh.`
+          : `${admin.name || admin.username} is now an admin (${authority === 'ALL' ? 'TCS + PQA' : authority === 'PQA_ONLY' ? 'PQA only' : 'TCS only'}).`,
+      );
     } catch (error) {
       console.error(error);
-      message.error('Failed to update access');
+      message.error(`Failed to update authority: ${error?.code || error?.message || 'unknown error'}`);
     }
   };
 
@@ -5030,12 +5093,16 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
       updatedBy: currentUser?.username || 'admin',
     };
     if (currentUser?.role === 'SUPER_ADMIN') {
-      updated.role = editAdminData.role || 'ADMIN';
-      updated.access = editAdminData.access || 'TCS_ONLY';
+      updated.role = editAdminData.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'ADMIN';
+      if (admin.id === currentUser?.id && updated.role !== admin.role) {
+        message.warning('You cannot change your own role.');
+        return;
+      }
+      updated.access = updated.role === 'SUPER_ADMIN' ? 'ALL' : editAdminData.access || 'TCS_ONLY';
       updated.permissions = buildPermissionsForSave(editAdminData, updated.role);
     }
     if (editAdminData.password?.trim()) {
-      message.warning('Password changes must use Firebase Auth (Console or /api/admin/bootstrap). passwordB64 is no longer stored.');
+      message.warning('Passwords cannot be changed here. Other details were saved; to set a new password, remove this admin and add them again with a different username.');
     }
     try {
       await persistAdminUpdate(updated, 'Edited admin account');
@@ -5043,7 +5110,7 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
       message.success('Account updated.');
     } catch (error) {
       console.error(error);
-      message.error('Failed to save account');
+      message.error(`Failed to save account: ${error?.code || error?.message || 'unknown error'}`);
     }
   };
 
@@ -7049,29 +7116,7 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
             <AdminPortalShell
               activeTab={adminPanelTab}
               onTabChange={setAdminPanelTab}
-              tabs={[
-                { key: 'data', label: 'Data', show: canAccessModule(currentUser, 'tcs') || canAccessModule(currentUser, 'pqa') },
-                {
-                  key: 'display',
-                  label: 'Display',
-                  show:
-                    canWriteModule(currentUser, 'survey')
-                    || canWriteModule(currentUser, 'feedback')
-                    || canReadModule(currentUser, 'tcs')
-                    || currentUser.role === 'SUPER_ADMIN'
-                    || currentUser.role === 'ADMIN',
-                },
-                { key: 'survey', label: 'Survey', show: canAccessModule(currentUser, 'survey') },
-                { key: 'feedback', label: 'Feedback', show: canAccessModule(currentUser, 'feedback') },
-                { key: 'scora-challenge', label: 'SCORA Challenge', show: currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN' || canAccessModule(currentUser, 'quiz') },
-                { key: 'knowledge-base', label: 'Knowledge Base', show: currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN' },
-                ...(currentUser.role === 'SUPER_ADMIN'
-                  ? [
-                      { key: 'insights', label: 'Insights', show: true },
-                      { key: 'system', label: 'System', show: true },
-                    ]
-                  : []),
-              ].filter((tab) => tab.show !== false)}
+              tabs={adminTabs}
               header={(
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-6">
                 <div className="space-y-1">
@@ -7540,13 +7585,13 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
               </div>
               )}
 
-              {adminPanelTab === 'display' && (
+              {adminPanelTab === 'display' && canAccessModule(currentUser, 'display') && (
                 <div className="space-y-6">
                   <div className="rounded-[2rem] border border-white/10 bg-zinc-900/35 p-6 md:p-8 space-y-4">
                     <p className="text-[9px] font-black uppercase tracking-[0.35em] text-zinc-500">Display</p>
                     <h3 className="text-base font-black text-white uppercase tracking-tight">Public dashboard settings</h3>
                     <p className="text-[10px] text-zinc-500 font-medium max-w-lg">Configure what visitors see on leaderboards and exports.</p>
-                    {canWriteModule(currentUser, 'survey') && (
+                    {canWriteModule(currentUser, 'display') && (
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-emerald-500/20 bg-zinc-950/60 p-5">
                       <div className="space-y-1 min-w-0">
                         <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Survey popup</p>
@@ -7568,7 +7613,7 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                       </div>
                     </div>
                     )}
-                    {canWriteModule(currentUser, 'feedback') && (
+                    {canWriteModule(currentUser, 'display') && (
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-purple-500/20 bg-zinc-950/60 p-5">
                       <div className="space-y-1 min-w-0">
                         <p className="text-[10px] font-black uppercase tracking-widest text-purple-400">Engineer feedback (Arabic form)</p>
@@ -7588,7 +7633,7 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                       </div>
                     </div>
                     )}
-                    {(currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN') && (
+                    {canWriteModule(currentUser, 'display') && (
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-blue-500/20 bg-zinc-950/60 p-5">
                       <div className="space-y-1 min-w-0">
                         <p className="text-[10px] font-black uppercase tracking-widest text-blue-400">Phone alerts banner</p>
@@ -7797,14 +7842,14 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                 </div>
               )}
 
-              {adminPanelTab === 'survey' && canAccessModule(currentUser, 'survey') && (
+              {adminPanelTab === 'survey' && (canAccessModule(currentUser, 'survey') || canAccessModule(currentUser, 'surveyForms')) && (
                 <div className="space-y-6">
-                  {(canWriteModule(currentUser, 'survey') || currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN') && (
+                  {canAccessModule(currentUser, 'surveyForms') && (
                     <div className="rounded-[2rem] border border-emerald-500/15 bg-zinc-900/35 p-6 md:p-8">
                       <SurveyDefinitionsPanel
                         message={message}
                         actor={currentUser?.username || 'admin'}
-                        canWrite={canWriteModule(currentUser, 'survey') || currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN'}
+                        canWrite={canWriteModule(currentUser, 'surveyForms')}
                         activeSurveyId={activeSurveyId}
                         popupEnabled={academySurveyPopupEnabled}
                         onActiveChange={handleActiveSurveyChange}
@@ -7825,8 +7870,9 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                       <div className="space-y-4 text-center py-12">
                         <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Survey — analysis</p>
                         <p className="text-sm text-zinc-500 max-w-md mx-auto">
-                          Analytics and export require read access. Edit forms above, or turn the public shortcut on or off in Display.
+                          Analytics and export need &quot;Survey responses&quot; read access. Ask a super admin to grant it.
                         </p>
+                        {canAccessModule(currentUser, 'display') && (
                         <button
                           type="button"
                           onClick={() => setAdminPanelTab('display')}
@@ -7834,6 +7880,7 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                         >
                           Open Display settings
                         </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -7876,7 +7923,7 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                 </div>
               )}
 
-              {adminPanelTab === 'knowledge-base' && (currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN') && (
+              {adminPanelTab === 'knowledge-base' && canAccessModule(currentUser, 'knowledge') && (
                 <div className="space-y-6 w-full">
                   <div className="flex flex-wrap gap-2">
                     {[

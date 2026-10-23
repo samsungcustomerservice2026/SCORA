@@ -33,12 +33,33 @@ service cloud.firestore {
       );
     }
 
+    // Only a super admin can write admins/{uid}, so a SUPER_ADMIN role stored
+    // there cannot be self-granted.
     function isSuperAdmin() {
+      let path = /databases/$(database)/documents/admins/$(request.auth.uid);
       return signedIn() && (
         request.auth.token.isSuperAdmin == true ||
         tokenRole() == 'super_admin' ||
-        request.auth.token.email == 'fawzymaherahmed@gmail.com'
+        request.auth.token.email == 'fawzymaherahmed@gmail.com' ||
+        (exists(path) && get(path).data.get('role', '') in ['SUPER_ADMIN', 'super_admin'])
       );
+    }
+
+    // Per-module grant stored on admins/{uid}.permissions. Profiles without a
+    // uid-keyed doc or without the key keep their pre-permission access.
+    // surveyForms falls back to the survey grant it was split from.
+    function canWriteAdminModule(module) {
+      let path = /databases/$(database)/documents/admins/$(request.auth.uid);
+      return isSuperAdmin() || (isAdmin() && (
+        !exists(path) ||
+        get(path).data.get('role', '') == 'SUPER_ADMIN' ||
+        get(path).data.get('permissions', {}).get(
+          module,
+          module == 'surveyForms'
+            ? get(path).data.get('permissions', {}).get('survey', 'READ_WRITE')
+            : 'READ_WRITE'
+        ) in ['WRITE', 'READ_WRITE']
+      ));
     }
 
     function isSelf(uid) {
@@ -146,12 +167,22 @@ service cloud.firestore {
 
     // ΓöÇΓöÇ Admins (migration-friendly reads until Auth claims are live) ΓöÇΓöÇ
     match /admins/{adminId} {
-      // A signed-in admin may read only its own profile, which is all the client
-      // needs after login. Listing and every write go through the Admin SDK
-      // (/api/admin/accounts, /api/admin/bootstrap) so that no client can grant
-      // itself a role — isAdmin()/isEditorPlus() above trust this collection.
-      allow read: if isSelf(adminId);
-      allow write: if false;
+      // isAdmin()/isEditorPlus() above trust this collection, so only a super
+      // admin may list or write it. Credentials live in Firebase Auth only, and
+      // a super admin cannot demote or delete their own profile.
+      allow read: if isSelf(adminId) || isSuperAdmin();
+      allow create: if isSuperAdmin() &&
+        !request.resource.data.keys().hasAny(adminCredentialFields());
+      allow update: if isSuperAdmin() &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(adminCredentialFields()) && (
+        adminId != request.auth.uid ||
+        request.resource.data.get('role', '') == resource.data.get('role', '')
+      );
+      allow delete: if isSuperAdmin() && adminId != request.auth.uid;
+    }
+
+    function adminCredentialFields() {
+      return ['passwordB64', 'password_b64', 'password', 'pwd'];
     }
 
     // ΓöÇΓöÇ Employees / consultants ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -210,11 +241,13 @@ service cloud.firestore {
       // Display flags must be readable by all visitors (survey popup,
       // feedback form and phone-alerts banner on/off).
       allow read: if true;
-      allow create, update, delete: if isAdmin();
+      // Display switches, or picking which survey is displayed.
+      allow create, update: if canWriteAdminModule('display') || canWriteAdminModule('surveyForms');
+      allow delete: if isSuperAdmin();
 
       match /definitions/{defId} {
         allow read: if true;
-        allow create, update, delete: if isAdmin();
+        allow create, update, delete: if canWriteAdminModule('surveyForms');
       }
 
       match /responses/{responseId} {

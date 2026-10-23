@@ -14,9 +14,10 @@ import {
   setPersistence,
   browserLocalPersistence,
 } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../../firebase';
 import { ROLES } from './roles';
+import { ADMIN_USERNAME_PATTERN, internalAdminEmail } from './adminLoginId';
 
 const UI_KEY = 'adminUiPrefs_v1';
 const MIGRATION_SESSION_KEY = 'adminMigrationSession_v1';
@@ -109,7 +110,7 @@ function toAuthEmail(loginId) {
   const raw = String(loginId || '').trim();
   if (!raw) return '';
   if (raw.includes('@')) return raw.toLowerCase();
-  return `${raw.toLowerCase()}@admins.tcs-for-engineers.local`;
+  return internalAdminEmail(raw);
 }
 
 function isAuthNotConfigured(err) {
@@ -167,6 +168,9 @@ export async function signInAdmin(loginId, password) {
   const raw = String(loginId || '').trim();
   const email = resolveLoginEmail(loginId);
   if (!email) throw new Error('Enter your admin email or username.');
+  if (!raw.includes('@') && !ADMIN_USERNAME_PATTERN.test(raw)) {
+    throw new Error('Check the username: only letters, numbers, dots (.), dashes (-) and underscores (_) — no commas or spaces.');
+  }
 
   await setPersistence(auth, browserLocalPersistence);
 
@@ -179,6 +183,7 @@ export async function signInAdmin(loginId, password) {
     }
     if (
       err?.code === 'auth/invalid-credential' ||
+      err?.code === 'auth/invalid-email' ||
       err?.code === 'auth/user-not-found' ||
       err?.code === 'auth/wrong-password'
     ) {
@@ -192,7 +197,7 @@ export async function signInAdmin(loginId, password) {
   if (!profile) {
     await signOut(auth);
     throw new Error(
-      'Signed in, but no admin profile is linked to this account. Ask a SUPER_ADMIN to provision it via /api/admin/bootstrap.',
+      'Signed in, but no admin profile is linked to this account. Ask a super admin to add it in Manage Accounts.',
     );
   }
   saveAdminUiPrefs({ username: profile.username || raw, name: profile.name });
@@ -246,6 +251,20 @@ export function subscribeAdminAuth(callback) {
       callback({ user, profile: null, error: err });
     }
   });
+}
+
+/**
+ * Follow the signed-in admin's own admins/{uid} doc so role and permission
+ * changes made by a super admin apply without signing out.
+ * callback(profile | null) — null when the profile was removed.
+ */
+export function watchAdminProfile(uid, email, callback) {
+  if (!uid) return () => {};
+  return onSnapshot(
+    doc(db, 'admins', uid),
+    (snap) => callback(snap.exists() ? shapeAdminUser(uid, snap.data(), email) : null),
+    () => {},
+  );
 }
 
 export { toAuthEmail, ROLES };

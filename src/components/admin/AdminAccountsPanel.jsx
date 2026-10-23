@@ -5,13 +5,28 @@ import { UserPlus, UserCircle, Trash2, Edit2, Save, X } from 'lucide-react';
 import {
   PERM,
   PERM_MODULES,
-  PERM_OPTIONS,
+  MODULE_HINTS,
   MODULE_LABELS,
   DEFAULT_FORM_PERMISSIONS,
+  allPermissions,
+  permOptionsFor,
   permissionBadge,
   permissionLabel,
   normalizePermissions,
+  readOnlyPermissions,
 } from '../../lib/adminPermissions';
+import { isInternalAdminEmail } from '../../lib/auth/adminLoginId';
+
+const MODULE_BADGES = {
+  tcs: 'TCS',
+  pqa: 'PQA',
+  display: 'DSP',
+  survey: 'SRV',
+  surveyForms: 'FORMS',
+  feedback: 'FDB',
+  quiz: 'QUIZ',
+  knowledge: 'KB',
+};
 
 export const EMPTY_ADMIN_FORM = {
   username: '',
@@ -24,17 +39,28 @@ export const EMPTY_ADMIN_FORM = {
 };
 
 export function adminAccessLabel(access) {
-  if (access === 'ALL') return 'Global access';
+  if (access === 'ALL') return 'TCS + PQA';
   if (access === 'PQA_ONLY') return 'PQA only';
   if (access === 'TCS_ONLY') return 'TCS only';
   return access || 'TCS only';
 }
 
-export function adminAccessBadge(access) {
-  if (access === 'ALL') return 'GLOBAL';
-  if (access === 'PQA_ONLY') return 'PQA';
+/** Global authority is the super admin role; an admin's scope is only TCS / PQA. */
+export function adminAuthorityBadge(admin) {
+  if (admin?.role === 'SUPER_ADMIN') return 'GLOBAL';
+  if (admin?.access === 'ALL') return 'TCS+PQA';
+  if (admin?.access === 'PQA_ONLY') return 'PQA';
   return 'TCS';
 }
+
+export const SUPER_ADMIN_AUTHORITY = 'SUPER_ADMIN';
+
+const AUTHORITY_OPTIONS = [
+  { value: 'TCS_ONLY', label: 'Admin · TCS only' },
+  { value: 'PQA_ONLY', label: 'Admin · PQA only' },
+  { value: 'ALL', label: 'Admin · TCS + PQA' },
+  { value: SUPER_ADMIN_AUTHORITY, label: 'Global · Super admin' },
+];
 
 function RoleAccessFields({ role, access, onRoleChange, onAccessChange, disabled }) {
   return (
@@ -47,31 +73,59 @@ function RoleAccessFields({ role, access, onRoleChange, onAccessChange, disabled
           onChange={(e) => onRoleChange(e.target.value)}
           className="w-full bg-black border border-white/10 rounded-xl p-3 text-[10px] font-black uppercase tracking-widest outline-none focus:border-green-600 text-white disabled:opacity-50"
         >
-          <option value="ADMIN">Standard operator</option>
-          <option value="SUPER_ADMIN">Super admin (owner)</option>
+          <option value="ADMIN">Admin (permissions below)</option>
+          <option value="SUPER_ADMIN">Global · Super admin (full control)</option>
         </select>
+        <p className="text-[9px] text-zinc-600 leading-relaxed ml-1">
+          {role === 'SUPER_ADMIN'
+            ? 'Everything in TCS and PQA, including admin accounts, Insights and System.'
+            : 'Only the modules granted below. Admin accounts, Insights and System stay with super admins.'}
+        </p>
       </div>
-      <div className="space-y-2">
-        <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 ml-1">Environment scope</label>
-        <select
-          value={access}
-          disabled={disabled}
-          onChange={(e) => onAccessChange(e.target.value)}
-          className="w-full bg-black border border-white/10 rounded-xl p-3 text-[10px] font-black uppercase tracking-widest outline-none focus:border-green-600 text-white disabled:opacity-50"
-        >
-          <option value="TCS_ONLY">TCS only</option>
-          <option value="PQA_ONLY">PQA only</option>
-          <option value="ALL">Global (TCS + PQA)</option>
-        </select>
-      </div>
+      {role !== 'SUPER_ADMIN' && (
+        <div className="space-y-2">
+          <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 ml-1">Environment scope</label>
+          <select
+            value={access}
+            disabled={disabled}
+            onChange={(e) => onAccessChange(e.target.value)}
+            className="w-full bg-black border border-white/10 rounded-xl p-3 text-[10px] font-black uppercase tracking-widest outline-none focus:border-green-600 text-white disabled:opacity-50"
+          >
+            <option value="TCS_ONLY">TCS only</option>
+            <option value="PQA_ONLY">PQA only</option>
+            <option value="ALL">TCS + PQA</option>
+          </select>
+        </div>
+      )}
     </>
   );
 }
 
-function ModulePermissionsFields({ permissions, onChange, disabled }) {
+const PRESETS = [
+  { key: 'full', label: 'Full access', build: () => allPermissions(PERM.READ_WRITE) },
+  { key: 'read', label: 'Read only', build: readOnlyPermissions },
+  { key: 'none', label: 'Clear', build: () => allPermissions(PERM.NONE) },
+];
+
+function ModulePermissionsFields({ permissions, onChange, onReplace, disabled }) {
   return (
     <div className="space-y-3 rounded-2xl border border-white/10 bg-black/30 p-4">
-      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500">Module permissions</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500">Module permissions</p>
+        <div className="flex flex-wrap gap-1.5">
+          {PRESETS.map((p) => (
+            <button
+              key={p.key}
+              type="button"
+              disabled={disabled}
+              onClick={() => onReplace(p.build())}
+              className="px-2.5 py-1 rounded-lg border border-white/10 text-[9px] font-black uppercase tracking-widest text-zinc-400 hover:text-white hover:border-white/30 disabled:opacity-40"
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
       <p className="text-[9px] text-zinc-600 leading-relaxed">
         Read = view &amp; export. Write = change settings &amp; edit data. Read &amp; write = full access.
       </p>
@@ -87,12 +141,13 @@ function ModulePermissionsFields({ permissions, onChange, disabled }) {
               onChange={(e) => onChange(module, e.target.value)}
               className="w-full bg-black border border-white/10 rounded-xl p-2.5 text-[10px] font-black uppercase tracking-widest outline-none focus:border-green-600 text-white disabled:opacity-50"
             >
-              {PERM_OPTIONS.map((option) => (
+              {permOptionsFor(module).map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
               ))}
             </select>
+            <p className="text-[9px] text-zinc-600 leading-snug ml-0.5">{MODULE_HINTS[module]}</p>
           </div>
         ))}
       </div>
@@ -111,6 +166,7 @@ function AdminForm({
   showCancel,
   isSuperAdmin,
   passwordHint,
+  isEditMode = false,
 }) {
   const isOwnerRole = formData.role === 'SUPER_ADMIN';
 
@@ -139,14 +195,20 @@ function AdminForm({
           />
         </div>
         <div className="space-y-2">
-          <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 ml-1">Email (Firebase Auth)</label>
+          <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 ml-1">Email (optional)</label>
           <input
             type="email"
             placeholder="name@company.com"
-            className="w-full bg-black border border-white/10 rounded-xl p-3 text-sm outline-none focus:border-green-600 font-bold text-white"
-            value={formData.email || ''}
+            disabled={isEditMode}
+            className="w-full bg-black border border-white/10 rounded-xl p-3 text-sm outline-none focus:border-green-600 font-bold text-white disabled:opacity-50"
+            value={isEditMode && isInternalAdminEmail(formData.email) ? '' : formData.email || ''}
             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
           />
+          <p className="text-[9px] text-zinc-600 leading-relaxed ml-1">
+            {isEditMode
+              ? 'The sign-in email cannot be changed here.'
+              : 'Leave empty to sign in with the username instead of an email.'}
+          </p>
         </div>
         <div className="space-y-2">
           <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 ml-1">Password</label>
@@ -175,6 +237,7 @@ function AdminForm({
                     permissions: { ...formData.permissions, [module]: value },
                   })
                 }
+                onReplace={(permissions) => setFormData({ ...formData, permissions })}
               />
             )}
           </>
@@ -221,16 +284,18 @@ function AdminAccountCard({ admin, currentUser, isSuperAdmin, isEditing, onStart
             <p className="text-base sm:text-lg font-black text-white uppercase tracking-tight break-words">{admin.name}</p>
             <p className="text-[10px] font-bold text-zinc-500 mt-0.5 break-all">@{admin.username}</p>
             {admin.email ? (
-              <p className="text-[10px] font-medium text-zinc-600 mt-0.5 break-all">{admin.email}</p>
+              <p className="text-[10px] font-medium text-zinc-600 mt-0.5 break-all">
+                {isInternalAdminEmail(admin.email) ? 'Signs in with username' : admin.email}
+              </p>
             ) : null}
             <div className="flex flex-wrap gap-2 mt-2">
               {admin.role === 'SUPER_ADMIN' && (
                 <span className="text-[8px] bg-blue-600/15 text-blue-400 px-2 py-1 rounded-full border border-blue-600/25 font-black uppercase tracking-wider">
-                  Owner
+                  Super admin
                 </span>
               )}
               <span className="text-[8px] bg-emerald-600/15 text-emerald-400 px-2 py-1 rounded-full border border-emerald-600/25 font-black uppercase tracking-wider">
-                {adminAccessBadge(admin.access)}
+                {adminAuthorityBadge(admin)}
               </span>
               {PERM_MODULES.map((module) => {
                 const badge = permissionBadge(perms[module]);
@@ -241,7 +306,7 @@ function AdminAccountCard({ admin, currentUser, isSuperAdmin, isEditing, onStart
                     className="text-[8px] bg-zinc-800/80 text-zinc-400 px-2 py-1 rounded-full border border-white/10 font-black uppercase tracking-wider"
                     title={`${MODULE_LABELS[module]}: ${permissionLabel(perms[module])}`}
                   >
-                    {module.slice(0, 3).toUpperCase()} {badge}
+                    {MODULE_BADGES[module] || module.slice(0, 3).toUpperCase()} {badge}
                   </span>
                 );
               })}
@@ -252,7 +317,9 @@ function AdminAccountCard({ admin, currentUser, isSuperAdmin, isEditing, onStart
               )}
             </div>
             <p className="text-[9px] text-zinc-600 mt-2 uppercase tracking-wider">
-              Role: {admin.role === 'SUPER_ADMIN' ? 'Super admin' : 'Operator'} · {adminAccessLabel(admin.access)}
+              {admin.role === 'SUPER_ADMIN'
+                ? 'Role: Super admin · Global access'
+                : `Role: Admin · ${adminAccessLabel(admin.access)}`}
             </p>
           </div>
         </div>
@@ -260,14 +327,16 @@ function AdminAccountCard({ admin, currentUser, isSuperAdmin, isEditing, onStart
         {isSuperAdmin && (
           <div className="flex flex-col sm:flex-row flex-wrap gap-2 pt-1 border-t border-white/5">
             <select
-              value={admin.access || 'TCS_ONLY'}
+              value={admin.role === 'SUPER_ADMIN' ? SUPER_ADMIN_AUTHORITY : admin.access || 'TCS_ONLY'}
+              disabled={isSelf}
+              title={isSelf ? 'You cannot change your own authority' : undefined}
               onChange={(e) => onQuickAccessChange(admin, e.target.value)}
-              className="w-full sm:flex-1 min-w-0 bg-black text-zinc-300 text-[10px] font-black uppercase tracking-widest px-3 py-2.5 rounded-xl border border-white/10 outline-none focus:border-blue-500/50"
-              aria-label={`Environment scope for ${admin.username}`}
+              className="w-full sm:flex-1 min-w-0 bg-black text-zinc-300 text-[10px] font-black uppercase tracking-widest px-3 py-2.5 rounded-xl border border-white/10 outline-none focus:border-blue-500/50 disabled:opacity-50"
+              aria-label={`Authority for ${admin.username}`}
             >
-              <option value="TCS_ONLY">TCS only</option>
-              <option value="PQA_ONLY">PQA only</option>
-              <option value="ALL">Global access</option>
+              {AUTHORITY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
             </select>
             <div className="flex gap-2 w-full sm:w-auto">
               <button
@@ -327,6 +396,7 @@ export default function AdminAccountsPanel({
             submitLabel="Save changes"
             onCancel={onCancelEdit}
             showCancel
+            isEditMode
             isSuperAdmin={isSuperAdmin}
             passwordHint="Leave blank to keep current password"
           />
@@ -343,7 +413,7 @@ export default function AdminAccountsPanel({
         )}
         {isSuperAdmin && isEditing && (
           <p className="text-[10px] text-zinc-500 leading-relaxed px-1">
-            Set environment scope plus per-module read/write rules. Survey write controls the public popup toggle; survey read allows analytics and export.
+            Set environment scope plus per-module read/write rules. Display write controls the public popup and banner switches; Survey forms write allows adding, editing and deleting surveys.
           </p>
         )}
       </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { App } from 'antd';
 import {
   Plus,
@@ -11,7 +11,14 @@ import {
   RefreshCw,
   ClipboardList,
   Octagon,
+  Upload,
+  FileSpreadsheet,
 } from 'lucide-react';
+import {
+  QUIZ_IMPORT_ACCEPT,
+  readQuizImportFile,
+  downloadQuizImportTemplate,
+} from '../../lib/quizImportFile';
 import {
   QUIZ_DIVISIONS,
   EMPTY_QUIZ_TEMPLATE,
@@ -56,6 +63,9 @@ export default function QuizAdminPanel({
   const [reportPlayers, setReportPlayers] = useState([]);
   const [reportAnswers, setReportAnswers] = useState([]);
   const [endingSessionId, setEndingSessionId] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const importInputRef = useRef(null);
+  const importModeRef = useRef('new');
 
   const div = divisionFilter === 'ALL' ? null : divisionFilter;
 
@@ -168,6 +178,56 @@ export default function QuizAdminPanel({
     });
   };
 
+  const pickImportFile = (mode) => {
+    importModeRef.current = mode;
+    importInputRef.current?.click();
+  };
+
+  const showImportWarnings = (title, warnings) => {
+    if (!warnings?.length) return;
+    modal.warning({
+      title,
+      width: 560,
+      centered: true,
+      content: (
+        <div className="max-h-[50vh] overflow-y-auto text-xs space-y-1">
+          {warnings.map((w, i) => <p key={i}>• {w}</p>)}
+        </div>
+      ),
+    });
+  };
+
+  const handleImportFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setImporting(true);
+    try {
+      const { questions, warnings, title } = await readQuizImportFile(file);
+      if (importModeRef.current === 'append' && editing) {
+        setEditing((prev) => {
+          const kept = (prev.questions || []).filter((q) => String(q.prompt || q.promptAr || '').trim());
+          return { ...prev, questions: [...kept, ...questions] };
+        });
+      } else {
+        setEditing({
+          ...EMPTY_QUIZ_TEMPLATE,
+          division: div || EMPTY_QUIZ_TEMPLATE.division,
+          title,
+          settings: { ...DEFAULT_QUIZ_SETTINGS },
+          questions,
+        });
+      }
+      message.success(`${questions.length} question${questions.length === 1 ? '' : 's'} imported from ${file.name}. Review them, then Save quiz.`);
+      showImportWarnings('Please check these questions', warnings);
+    } catch (e) {
+      message.error(e.message || 'Could not read this file');
+      showImportWarnings('What was found in the file', e.warnings);
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const addQuestion = () => {
     setEditing((prev) => ({
       ...prev,
@@ -264,18 +324,52 @@ export default function QuizAdminPanel({
       {subTab === 'templates' && (
         <div className="space-y-6">
           {canWrite && (
-            <button
-              type="button"
-              onClick={() => setEditing({
-                ...EMPTY_QUIZ_TEMPLATE,
-                settings: { ...DEFAULT_QUIZ_SETTINGS },
-                questions: [createEmptyQuestion()],
-              })}
-              className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-white text-black text-[10px] font-black uppercase"
-            >
-              <Plus className="w-4 h-4" /> New quiz
-            </button>
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditing({
+                    ...EMPTY_QUIZ_TEMPLATE,
+                    settings: { ...DEFAULT_QUIZ_SETTINGS },
+                    questions: [createEmptyQuestion()],
+                  })}
+                  className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-white text-black text-[10px] font-black uppercase"
+                >
+                  <Plus className="w-4 h-4" /> New quiz
+                </button>
+                <button
+                  type="button"
+                  disabled={importing}
+                  onClick={() => pickImportFile('new')}
+                  className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-orange-600 text-white text-[10px] font-black uppercase disabled:opacity-50"
+                >
+                  <Upload className="w-4 h-4" /> {importing ? 'Reading file…' : 'Import quiz from file'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => downloadQuizImportTemplate().catch((e) => message.error(e.message))}
+                  className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-zinc-900 border border-white/10 text-zinc-300 text-[10px] font-black uppercase hover:text-white"
+                >
+                  <FileSpreadsheet className="w-4 h-4" /> Excel template
+                </button>
+              </div>
+              <p className="text-[10px] text-zinc-500 max-w-3xl leading-relaxed">
+                Excel (.xlsx, .csv), Word (.docx), PDF or .txt. The Excel template has dropdowns for Type, Correct
+                (follows the Type) and Time — typed answers go in &quot;Accepted answers&quot;. In Word / PDF write each question as
+                {' '}<span className="text-zinc-300">1. Question</span>, options as <span className="text-zinc-300">A) …</span>,
+                {' '}then <span className="text-zinc-300">Answer: B</span> (or mark the right option with *). Use
+                {' '}<span className="text-zinc-300">Answer: A, C</span> for multi-select, <span className="text-zinc-300">Answer: True</span> for true/false,
+                {' '}or only an answer line for a typed answer. Arabic (أ / ب / الإجابة) works too.
+              </p>
+            </div>
           )}
+          <input
+            ref={importInputRef}
+            type="file"
+            accept={QUIZ_IMPORT_ACCEPT}
+            className="hidden"
+            onChange={handleImportFile}
+          />
 
           {editing && canWrite && (
             <div className="rounded-[2rem] border border-orange-500/25 bg-zinc-900/40 p-4 md:p-6 lg:p-8 space-y-6 w-full">
@@ -302,7 +396,12 @@ export default function QuizAdminPanel({
                     onApplyTimeToAll={applyTimeToAll}
                   />
                 ))}
-                <button type="button" onClick={addQuestion} className="w-full py-3 rounded-xl border border-dashed border-white/15 text-[10px] font-black uppercase text-zinc-500 hover:text-white hover:border-white/30">+ Add question</button>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <button type="button" onClick={addQuestion} className="flex-1 py-3 rounded-xl border border-dashed border-white/15 text-[10px] font-black uppercase text-zinc-500 hover:text-white hover:border-white/30">+ Add question</button>
+                  <button type="button" disabled={importing} onClick={() => pickImportFile('append')} className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed border-orange-500/30 text-[10px] font-black uppercase text-orange-300 hover:text-white hover:border-orange-400/60 disabled:opacity-50">
+                    <Upload className="w-4 h-4" /> {importing ? 'Reading file…' : 'Add questions from file'}
+                  </button>
+                </div>
               </div>
 
               <div className="flex flex-wrap gap-2 pt-2 border-t border-white/10">
