@@ -1135,3 +1135,20 @@
   from { transform: scaleY(0); opacity: 0.4; }
   to { transform: scaleY(1); opacity: 1; }
 }
+
+/* Survey form: lock authored language/direction so a visitor's device
+   locale or browser translate cannot flip or rewrite the copy. */
+.survey-lang-lock {
+  unicode-bidi: isolate;
+}
+.survey-lang-lock[dir='rtl'] {
+  direction: rtl !important;
+}
+.survey-lang-lock[dir='ltr'] {
+  direction: ltr !important;
+}
+.survey-ltr-input {
+  direction: ltr !important;
+  unicode-bidi: isolate;
+  text-align: left;
+}

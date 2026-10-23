@@ -146,9 +146,12 @@ service cloud.firestore {
 
     // ΓöÇΓöÇ Admins (migration-friendly reads until Auth claims are live) ΓöÇΓöÇ
     match /admins/{adminId} {
-      // Temporary open access so Manage Accounts can list Jimmy/George and write profiles.
-      // Tighten after every admin uses Firebase Auth + service account bootstrap.
-      allow read, write: if true;
+      // A signed-in admin may read only its own profile, which is all the client
+      // needs after login. Listing and every write go through the Admin SDK
+      // (/api/admin/accounts, /api/admin/bootstrap) so that no client can grant
+      // itself a role — isAdmin()/isEditorPlus() above trust this collection.
+      allow read: if isSelf(adminId);
+      allow write: if false;
     }
 
     // ΓöÇΓöÇ Employees / consultants ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -204,9 +207,15 @@ service cloud.firestore {
       allow read, update, delete: if isAdmin();
     }
     match /samsung_academy_survey/records {
-      // Display flags must be readable by all visitors (TCS popup on/off).
+      // Display flags must be readable by all visitors (survey popup,
+      // feedback form and phone-alerts banner on/off).
       allow read: if true;
       allow create, update, delete: if isAdmin();
+
+      match /definitions/{defId} {
+        allow read: if true;
+        allow create, update, delete: if isAdmin();
+      }
 
       match /responses/{responseId} {
         allow create: if true;

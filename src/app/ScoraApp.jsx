@@ -53,7 +53,6 @@ import ArabicFeedbackDashboard from '../components/admin/ArabicFeedbackDashboard
 import QuizAdminPanel from '../components/quiz/QuizAdminPanel';
 import AdminAccountsPanel, { EMPTY_ADMIN_FORM } from '../components/admin/AdminAccountsPanel';
 import AdminPortalShell from '../components/admin/AdminPortalShell';
-import ScoraAtmosphereMount from '../components/atmosphere/ScoraAtmosphereMount';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { MotionCard, MotionStage, usePortalLaunch } from '../components/transitions/PortalLaunch';
 import LogTrafficPanel from '../components/admin/LogTrafficPanel';
@@ -67,14 +66,23 @@ import EmployeeDashboard from '../components/employee/EmployeeDashboard';
 import ConsultantViewer from '../components/employee/ConsultantViewer';
 import AddToHomeScreenSheet from '../components/pwa/AddToHomeScreenSheet';
 import NotifyAlertsBanner from '../components/pwa/NotifyAlertsBanner';
+import PublicLinkQr from '../components/admin/PublicLinkQr';
 import { useVisitorEngagement } from '../hooks/useVisitorEngagement';
 import { useEmployeeAuth } from '../hooks/useEmployeeAuth';
 import { recordFunnelStep } from '../services/visitorEngagementService';
 import { exportAnalyticsReport } from '../lib/exportAnalyticsReport';
 import {
-  SAMSUNG_ACADEMY_LOCATIONS,
-  ACADEMY_PRODUCTS,
-} from '../lib/samsungAcademySurveyAnalytics';
+  DEFAULT_ACADEMY_SURVEY,
+  DEFAULT_SURVEY_ID,
+  buildSurveyResponsePayload,
+  displaySurveyName,
+  emptySurveyAnswers,
+  surveyDir,
+  surveyLangAttr,
+  validateSurveyAnswers,
+} from '../lib/surveyDefinitions';
+import PublicSurveyForm from '../components/survey/PublicSurveyForm';
+import SurveyDefinitionsPanel from '../components/admin/SurveyDefinitionsPanel';
 import {
   canReadModule,
   canWriteModule,
@@ -98,7 +106,7 @@ import {
   DEFAULT_ENGINEER_PHOTO_URL,
 } from '../constants';
 import dynamic from 'next/dynamic';
-import { getEngineers, getHiddenEngineers, saveEngineer as saveEngineerToDb, archiveEngineer, deleteEngineerPermanent, getAdmins, saveAdmin as saveAdminToDb, deleteAdmin as deleteAdminFromDb, saveFeedback as saveFeedbackToDb, saveSamsungAcademySurvey as saveSamsungAcademySurveyToDb, getSamsungAcademySurveys as getSamsungAcademySurveysFromDb, getTcsDashboardWinners, saveTcsDashboardWinners, getAcademySurveySettings, saveAcademySurveySettings } from '../services/firestoreService';
+import { getEngineers, getHiddenEngineers, saveEngineer as saveEngineerToDb, archiveEngineer, deleteEngineerPermanent, getAdmins, saveAdmin as saveAdminToDb, deleteAdmin as deleteAdminFromDb, saveFeedback as saveFeedbackToDb, saveSamsungAcademySurvey as saveSamsungAcademySurveyToDb, getSamsungAcademySurveys as getSamsungAcademySurveysFromDb, getTcsDashboardWinners, saveTcsDashboardWinners, getAcademySurveySettings, saveAcademySurveySettings, getSurveyDefinitions } from '../services/firestoreService';
 import { normalizePqaPartnerKey, mapPqaSheetPartnerKeyToOfficial, PQA_OFFICIAL_MX_PARTNERS } from '../lib/pqaPartnerMap.js';
 import {
   parseTcsScoreSheetRows,
@@ -1148,7 +1156,6 @@ function resolveEngineerPhotoForImport(rec, existing) {
 /** Home dashboard (TCS): monthly Hall of Fame + quarterly ladder list length (podium + rows below). */
 const TCS_HOME_LEADERBOARD_LIMIT = 20;
 const TCS_WINNERS_PER_PRODUCT = TCS_WINNERS_DEFAULT_SLOTS;
-const ACADEMY_RATING_SCALE = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const INITIAL_ENGINEER_FEEDBACK = {
   fullName: '',
   phoneNumber: '',
@@ -2084,7 +2091,19 @@ const PageContent = ({ initialView = null, initialAdminPortal = false } = {}) =>
     const cached = readCachedAcademySurveySettings();
     return cached?.academySurveyPopupEnabled !== false;
   });
+  const [surveyDefinitions, setSurveyDefinitions] = useState([DEFAULT_ACADEMY_SURVEY]);
+  const [activeSurveyId, setActiveSurveyId] = useState(() => {
+    const cached = readCachedAcademySurveySettings();
+    return cached?.activeSurveyId || DEFAULT_SURVEY_ID;
+  });
+  /** Admin switch for the in-app "turn on phone alerts" banner (default: on). */
+  const [notifyAlertsEnabled, setNotifyAlertsEnabled] = useState(() => {
+    const cached = readCachedAcademySurveySettings();
+    return cached?.notifyAlertsEnabled !== false;
+  });
   const [academySurveySettingsLoading, setAcademySurveySettingsLoading] = useState(false);
+  /** Live display settings fetched once; the alerts banner waits for this so OFF is never overridden by the default. */
+  const [academySurveySettingsLoaded, setAcademySurveySettingsLoaded] = useState(false);
   const [academySurveySettingsSaving, setAcademySurveySettingsSaving] = useState(false);
   /** User dismissed the floating shortcut for this session only */
   const [showSurveyShortcut, setShowSurveyShortcut] = useState(() => {
@@ -2092,19 +2111,7 @@ const PageContent = ({ initialView = null, initialAdminPortal = false } = {}) =>
     return cached?.academySurveyPopupEnabled !== false;
   });
   const [gogoOpen, setGogoOpen] = useState(false);
-  const [academySurvey, setAcademySurvey] = useState({
-    fullName: '',
-    phoneNumber: '',
-    company: '',
-    product: '',
-    academyLocation: '',
-    contentValue: '',
-    trainerClarity: '',
-    needMoreSessions: '',
-    periodSuitable: '',
-    placeAccommodation: '',
-    notes: '',
-  });
+  const [academySurvey, setAcademySurvey] = useState(() => emptySurveyAnswers(DEFAULT_ACADEMY_SURVEY));
 
   // Activity log panel toggle
   /** Admin dashboard: modal shortcuts (accounts / TCS guide / action log) */
@@ -2131,20 +2138,16 @@ const PageContent = ({ initialView = null, initialAdminPortal = false } = {}) =>
   // PWA: one-time install sheet (install popup wins over notify banner)
   const [pwaInstallSheetOpen, setPwaInstallSheetOpen] = useState(false);
 
+  const activeSurveyDef = useMemo(() => {
+    const found = surveyDefinitions.find((d) => d.id === activeSurveyId);
+    return found || surveyDefinitions[0] || DEFAULT_ACADEMY_SURVEY;
+  }, [surveyDefinitions, activeSurveyId]);
+  const activeSurveyDefRef = useRef(activeSurveyDef);
+  activeSurveyDefRef.current = activeSurveyDef;
+  const activeSurveyDisplayName = displaySurveyName(activeSurveyDef);
+
   const resetAcademySurvey = () => {
-    setAcademySurvey({
-      fullName: '',
-      phoneNumber: '',
-      company: '',
-      product: '',
-      academyLocation: '',
-      contentValue: '',
-      trainerClarity: '',
-      needMoreSessions: '',
-      periodSuitable: '',
-      placeAccommodation: '',
-      notes: '',
-    });
+    setAcademySurvey(emptySurveyAnswers(activeSurveyDefRef.current || DEFAULT_ACADEMY_SURVEY));
     setAcademySurveySent(false);
     setIsSubmittingAcademySurvey(false);
   };
@@ -2448,16 +2451,12 @@ const PageContent = ({ initialView = null, initialAdminPortal = false } = {}) =>
     });
   }, [appMode, currentUser?.username, isLogged, portalRealm, view]);
 
-  const getSurveyRateBand = (v) => {
-    const n = parseInt(String(v || ''), 10);
-    if (!Number.isFinite(n)) return '';
-    if (n <= 6) return 'غير راضي';
-    if (n <= 8) return 'محايد';
-    return 'راضي';
-  };
-
   // Direct URL support: /samsung-academy-survey | /feedback | /?portal=admin | /?survey=… | /?feedback=…
   const portalQueryHandledRef = useRef(false);
+  /** Read before the query effect strips `?survey=`; QR/link visitors need the selected survey without the idle delay. */
+  const openedViaSurveyLinkRef = useRef(
+    typeof window !== 'undefined' && isDirectSurveyQuery(new URLSearchParams(window.location.search).get('survey')),
+  );
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
@@ -2571,11 +2570,18 @@ const PageContent = ({ initialView = null, initialAdminPortal = false } = {}) =>
       (async () => {
         setAcademySurveySettingsLoading(true);
         try {
-          const settings = await getAcademySurveySettings();
+          const [settings, defs] = await Promise.all([
+            getAcademySurveySettings(),
+            getSurveyDefinitions(),
+          ]);
           if (cancelled || academySurveySettingsTouchedRef.current) return;
           setAcademySurveyPopupEnabled(settings.academySurveyPopupEnabled !== false);
           setFeedbackEnabled(settings.feedbackEnabled !== false);
+          setNotifyAlertsEnabled(settings.notifyAlertsEnabled !== false);
+          setActiveSurveyId(settings.activeSurveyId || DEFAULT_SURVEY_ID);
+          setSurveyDefinitions(defs.length ? defs : [DEFAULT_ACADEMY_SURVEY]);
           writeCachedAcademySurveySettings(settings);
+          setAcademySurveySettingsLoaded(true);
           if (settings.academySurveyPopupEnabled === false) {
             setShowSurveyShortcut(false);
           }
@@ -2585,10 +2591,13 @@ const PageContent = ({ initialView = null, initialAdminPortal = false } = {}) =>
         } catch (err) {
           if (!cancelled) console.error('Academy survey settings load failed', err);
         } finally {
-          if (!cancelled) setAcademySurveySettingsLoading(false);
+          if (!cancelled) {
+            setAcademySurveySettingsLoading(false);
+            setAcademySurveySettingsLoaded(true);
+          }
         }
       })();
-    }, 1200);
+    }, openedViaSurveyLinkRef.current ? 0 : 1200);
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -2661,6 +2670,8 @@ const PageContent = ({ initialView = null, initialAdminPortal = false } = {}) =>
       writeCachedAcademySurveySettings({
         academySurveyPopupEnabled: enabled,
         feedbackEnabled,
+        notifyAlertsEnabled,
+        activeSurveyId,
       });
       if (enabled) setShowSurveyShortcut(true);
       message.success(enabled ? 'Samsung Academy survey popup is ON for all visitors.' : 'Samsung Academy survey popup is OFF.');
@@ -2703,6 +2714,8 @@ const PageContent = ({ initialView = null, initialAdminPortal = false } = {}) =>
       writeCachedAcademySurveySettings({
         academySurveyPopupEnabled,
         feedbackEnabled: enabled,
+        notifyAlertsEnabled,
+        activeSurveyId,
       });
       if (enabled) setShowFeedbackPromo(true);
       message.success(enabled ? 'Arabic feedback form is ON for all visitors.' : 'Arabic feedback form is OFF.');
@@ -2723,6 +2736,68 @@ const PageContent = ({ initialView = null, initialAdminPortal = false } = {}) =>
       setAcademySurveySettingsSaving(false);
     }
   };
+
+  const handleNotifyAlertsToggle = async (enabled) => {
+    const isPlatformAdmin = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN';
+    if (!isPlatformAdmin) {
+      message.warning('You do not have access to notification settings.');
+      writeLog({
+        type: 'ADMIN_ACTION',
+        actor: currentUser?.username || 'admin',
+        category: 'SECURITY',
+        action: 'Denied alerts banner toggle (insufficient permissions)',
+        severity: 'warning',
+      });
+      return;
+    }
+    setAcademySurveySettingsSaving(true);
+    academySurveySettingsTouchedRef.current = true;
+    setAcademySurveySettingsLoaded(true);
+    setNotifyAlertsEnabled(enabled);
+    try {
+      await saveAcademySurveySettings({ notifyAlertsEnabled: enabled }, currentUser?.username || 'admin');
+      writeCachedAcademySurveySettings({
+        academySurveyPopupEnabled,
+        feedbackEnabled,
+        notifyAlertsEnabled: enabled,
+        activeSurveyId,
+      });
+      message.success(enabled ? 'Phone alerts banner is ON for all visitors.' : 'Phone alerts banner is OFF.');
+      writeLog({
+        type: 'ADMIN_ACTION',
+        actor: currentUser?.username || 'admin',
+        category: 'SYSTEM',
+        action: enabled ? 'Enabled phone alerts banner' : 'Disabled phone alerts banner',
+        severity: 'info',
+      });
+    } catch (err) {
+      console.error(err);
+      setNotifyAlertsEnabled(!enabled);
+      message.error('Could not save notification banner setting.');
+    } finally {
+      setAcademySurveySettingsSaving(false);
+    }
+  };
+
+  const handleActiveSurveyChange = async (id) => {
+    setActiveSurveyId(id);
+    writeCachedAcademySurveySettings({
+      academySurveyPopupEnabled,
+      feedbackEnabled,
+      notifyAlertsEnabled,
+      activeSurveyId: id,
+    });
+    const latest = await getSurveyDefinitions().catch(() => surveyDefinitions);
+    if (latest?.length) setSurveyDefinitions(latest);
+  };
+
+  useEffect(() => {
+    const touched = Object.values(academySurvey || {}).some((v) => String(v || '').trim());
+    if (touched || academySurveySent || view === 'SAMSUNG_ACADEMY_SURVEY') return;
+    setAcademySurvey(emptySurveyAnswers(activeSurveyDef));
+    // Refresh empty answers when the selected survey changes, without wiping an in-progress form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSurveyDef]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -2842,19 +2917,7 @@ const PageContent = ({ initialView = null, initialAdminPortal = false } = {}) =>
 
   useEffect(() => {
     if (view === 'SAMSUNG_ACADEMY_SURVEY' && !academySurveySent && !surveyStartedRef.current) {
-      const touched = Boolean(
-        academySurvey.fullName
-        || academySurvey.phoneNumber
-        || academySurvey.company
-        || academySurvey.product
-        || academySurvey.academyLocation
-        || academySurvey.contentValue
-        || academySurvey.trainerClarity
-        || academySurvey.needMoreSessions
-        || academySurvey.periodSuitable
-        || academySurvey.placeAccommodation
-        || academySurvey.notes
-      );
+      const touched = Object.values(academySurvey || {}).some((v) => String(v || '').trim());
       if (touched) {
         surveyStartedRef.current = true;
         trackFunnelStep('survey', 'started', 'form_interaction');
@@ -6143,8 +6206,7 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
     view === 'FEEDBACK';
 
   return (
-    <div className="mobile-page-shell relative z-[1] min-h-screen bg-transparent text-white flex flex-col pb-24 selection:bg-blue-600 selection:text-white">
-      <ScoraAtmosphereMount intensity={view === 'ADMIN_DASHBOARD' || portalLaunchBusy ? 'command' : 'subtle'} />
+    <div className="mobile-page-shell relative z-[1] min-h-screen bg-black text-white flex flex-col pb-24 selection:bg-blue-600 selection:text-white">
       {portalLaunchOverlay}
       <Header
         onHome={() => {
@@ -6182,6 +6244,14 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
           ? 'max-w-[min(100%,1680px)]'
           : 'max-w-4xl'
       }`}>
+        {!isAdminPortal && academySurveySettingsLoaded && notifyAlertsEnabled && (
+          <NotifyAlertsBanner
+            ready={pwaReady && !pwaInstallSheetOpen}
+            blocked={pwaBlockedByCriticalUi || pwaInstallSheetOpen}
+            userId={employeeProfile?.uid || currentUser?.uid || null}
+            onToast={(text) => message.info(text)}
+          />
+        )}
         {/* Error Notification */}
         {fetchError && (
           <div className="mb-8 p-4 bg-red-600/10 border border-red-500/20 rounded-2xl flex items-center gap-3 text-red-500 animate-in fade-in slide-in-from-top-4 duration-500">
@@ -6260,7 +6330,7 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
           )}
 
           {view === 'APP_SELECTION' && (
-            <MotionStage className="min-h-[80vh] flex flex-col items-center justify-center space-y-12">
+            <MotionStage className="flex min-h-0 flex-col items-center justify-start space-y-10 py-2 lg:min-h-[80vh] lg:justify-center lg:space-y-12">
               <div className="text-center space-y-4">
                 <div className="inline-flex items-center gap-2 px-3 py-1 bg-yellow-500/10 border border-yellow-500/20 rounded-full mb-4">
                   <span className="relative flex h-2 w-2">
@@ -6331,7 +6401,7 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
           )}
 
           {view === 'TCS_DIVISION_SELECTION' && (
-            <MotionStage className="min-h-[80vh] flex flex-col items-center justify-center space-y-12 relative">
+            <MotionStage className="relative flex min-h-0 flex-col items-center justify-start space-y-10 py-2 lg:min-h-[80vh] lg:justify-center lg:space-y-12">
               <button
                 type="button"
                 onClick={() => navigateTo('APP_SELECTION')}
@@ -6430,7 +6500,7 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
           )}
 
           {view === 'PQA_DIVISION_SELECTION' && (
-            <MotionStage className="min-h-[80vh] flex flex-col items-center justify-center space-y-12 relative">
+            <MotionStage className="relative flex min-h-0 flex-col items-center justify-start space-y-10 py-2 lg:min-h-[80vh] lg:justify-center lg:space-y-12">
               <button
                 type="button"
                 onClick={() => navigateTo('APP_SELECTION')}
@@ -6988,7 +7058,8 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                     canWriteModule(currentUser, 'survey')
                     || canWriteModule(currentUser, 'feedback')
                     || canReadModule(currentUser, 'tcs')
-                    || currentUser.role === 'SUPER_ADMIN',
+                    || currentUser.role === 'SUPER_ADMIN'
+                    || currentUser.role === 'ADMIN',
                 },
                 { key: 'survey', label: 'Survey', show: canAccessModule(currentUser, 'survey') },
                 { key: 'feedback', label: 'Feedback', show: canAccessModule(currentUser, 'feedback') },
@@ -7478,9 +7549,11 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                     {canWriteModule(currentUser, 'survey') && (
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-emerald-500/20 bg-zinc-950/60 p-5">
                       <div className="space-y-1 min-w-0">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Samsung Academy survey popup</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Survey popup</p>
                         <p className="text-[10px] text-zinc-500 font-medium leading-relaxed max-w-md">
-                          When ON, TCS portal visitors see the floating &quot;Samsung Academy Survey&quot; button. When OFF, it is hidden for everyone until you turn it back on.
+                          When ON, TCS portal visitors see a floating button for the selected survey
+                          {activeSurveyDisplayName ? <> (<span dir={surveyDir(activeSurveyDef)} className="text-zinc-300">{activeSurveyDisplayName}</span>)</> : null}.
+                          When OFF, it is hidden. Choose which survey is shown in the Survey tab.
                         </p>
                       </div>
                       <div className="flex items-center gap-3 flex-shrink-0">
@@ -7515,6 +7588,26 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                       </div>
                     </div>
                     )}
+                    {(currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN') && (
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-blue-500/20 bg-zinc-950/60 p-5">
+                      <div className="space-y-1 min-w-0">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-blue-400">Phone alerts banner</p>
+                        <p className="text-[10px] text-zinc-500 font-medium leading-relaxed max-w-md">
+                          When ON, visitors see the &quot;Turn on phone alerts&quot; banner under the header until they allow or dismiss it. When OFF, it is hidden for everyone and no permission prompt is offered.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        <span className={`text-[9px] font-black uppercase tracking-widest ${notifyAlertsEnabled ? 'text-blue-400' : 'text-zinc-500'}`}>
+                          {academySurveySettingsLoading ? '…' : notifyAlertsEnabled ? 'On' : 'Off'}
+                        </span>
+                        <Switch
+                          checked={notifyAlertsEnabled}
+                          loading={academySurveySettingsLoading || academySurveySettingsSaving}
+                          onChange={handleNotifyAlertsToggle}
+                        />
+                      </div>
+                    </div>
+                    )}
                     <div className="rounded-2xl border border-white/10 bg-zinc-950/60 p-5 space-y-4">
                       <div className="space-y-1">
                         <p className="text-[10px] font-black uppercase tracking-widest text-zinc-300">Public direct links</p>
@@ -7524,7 +7617,25 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                       </div>
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                         <div className="rounded-xl border border-emerald-500/20 bg-black/30 p-4 space-y-3">
-                          <p className="text-[9px] font-black uppercase tracking-widest text-emerald-400">Samsung Academy survey</p>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-emerald-400">Selected survey</p>
+                            <span
+                              className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border ${
+                                academySurveyPopupEnabled
+                                  ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+                                  : 'border-white/10 text-zinc-500'
+                              }`}
+                            >
+                              Popup {academySurveyPopupEnabled ? 'On' : 'Off'}
+                            </span>
+                          </div>
+                          <p
+                            className="text-sm font-black text-white"
+                            lang={activeSurveyDef?.language === 'ar' ? 'ar' : 'en'}
+                            dir={activeSurveyDef?.language === 'ar' ? 'rtl' : 'ltr'}
+                          >
+                            {activeSurveyDisplayName}
+                          </p>
                           <p className="text-[10px] font-mono text-zinc-400 break-all">{SCORA_PUBLIC_SURVEY_URL}</p>
                           <div className="flex flex-wrap gap-2">
                             <button
@@ -7537,13 +7648,22 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                             </button>
                             <button
                               type="button"
-                              onClick={() => copyPublicDirectLink(SCORA_PUBLIC_SURVEY_URL, 'Samsung Academy survey')}
+                              onClick={() => copyPublicDirectLink(SCORA_PUBLIC_SURVEY_URL, activeSurveyDisplayName)}
                               className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-900 border border-white/10 text-zinc-300 text-[9px] font-black uppercase tracking-widest hover:text-white hover:bg-zinc-800 transition-all"
                             >
                               <Copy className="w-3.5 h-3.5" />
                               Copy
                             </button>
                           </div>
+                          <PublicLinkQr
+                            url={SCORA_PUBLIC_SURVEY_URL}
+                            fileName="scora-survey-qr"
+                            label="Survey QR code"
+                            onError={() => message.error('Could not create the QR image.')}
+                          />
+                          <p className="text-[10px] text-zinc-500">
+                            The link and QR always open the survey selected in the Survey tab. Change the selection there and printed QR codes follow it.
+                          </p>
                         </div>
                         <div className="rounded-xl border border-purple-500/20 bg-black/30 p-4 space-y-3">
                           <p className="text-[9px] font-black uppercase tracking-widest text-purple-400">Arabic feedback form</p>
@@ -7566,6 +7686,12 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                               Copy
                             </button>
                           </div>
+                          <PublicLinkQr
+                            url={SCORA_PUBLIC_FEEDBACK_URL}
+                            fileName="scora-feedback-qr"
+                            label="Feedback form QR code"
+                            onError={() => message.error('Could not create the QR image.')}
+                          />
                         </div>
                       </div>
                     </div>
@@ -7672,28 +7798,45 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
               )}
 
               {adminPanelTab === 'survey' && canAccessModule(currentUser, 'survey') && (
-                <div className="rounded-[2rem] border border-emerald-500/15 bg-zinc-900/35 p-6 md:p-8">
-                  {canReadModule(currentUser, 'survey') ? (
-                    <SamsungAcademySurveyDashboard
-                      message={message}
-                      onExported={handleSamsungAcademySurveyExported}
-                      allowExport={canReadModule(currentUser, 'survey')}
-                    />
-                  ) : (
-                    <div className="space-y-4 text-center py-12">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Survey — write access</p>
-                      <p className="text-sm text-zinc-500 max-w-md mx-auto">
-                        You can change public survey settings in the Display tab. Analytics and export require read access.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => setAdminPanelTab('display')}
-                        className="px-6 py-3 rounded-xl bg-emerald-600/20 border border-emerald-500/30 text-[10px] font-black uppercase tracking-widest text-emerald-200"
-                      >
-                        Open Display settings
-                      </button>
+                <div className="space-y-6">
+                  {(canWriteModule(currentUser, 'survey') || currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN') && (
+                    <div className="rounded-[2rem] border border-emerald-500/15 bg-zinc-900/35 p-6 md:p-8">
+                      <SurveyDefinitionsPanel
+                        message={message}
+                        actor={currentUser?.username || 'admin'}
+                        canWrite={canWriteModule(currentUser, 'survey') || currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN'}
+                        activeSurveyId={activeSurveyId}
+                        popupEnabled={academySurveyPopupEnabled}
+                        onActiveChange={handleActiveSurveyChange}
+                        onDefinitionsChange={setSurveyDefinitions}
+                      />
                     </div>
                   )}
+                  <div className="rounded-[2rem] border border-emerald-500/15 bg-zinc-900/35 p-6 md:p-8">
+                    {canReadModule(currentUser, 'survey') ? (
+                      <SamsungAcademySurveyDashboard
+                        message={message}
+                        onExported={handleSamsungAcademySurveyExported}
+                        allowExport={canReadModule(currentUser, 'survey')}
+                        activeSurveyId={activeSurveyId}
+                        definitions={surveyDefinitions}
+                      />
+                    ) : (
+                      <div className="space-y-4 text-center py-12">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Survey — analysis</p>
+                        <p className="text-sm text-zinc-500 max-w-md mx-auto">
+                          Analytics and export require read access. Edit forms above, or turn the public shortcut on or off in Display.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setAdminPanelTab('display')}
+                          className="px-6 py-3 rounded-xl bg-emerald-600/20 border border-emerald-500/30 text-[10px] font-black uppercase tracking-widest text-emerald-200"
+                        >
+                          Open Display settings
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -9630,9 +9773,9 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                     setAcademySurvey((prev) => ({ ...prev, fullName: selectedEngineer?.name || '' }));
                     setView('SAMSUNG_ACADEMY_SURVEY');
                   }}
-                  className="w-full flex items-center justify-center gap-3 py-5 bg-zinc-900 border border-white/5 rounded-[2rem] text-[10px] font-black text-zinc-400 uppercase tracking-widest hover:bg-purple-600/10 hover:border-purple-500/30 hover:text-purple-400 transition-all"
+                  className="w-full flex items-center justify-center gap-3 py-5 bg-zinc-900 border border-white/5 rounded-[2rem] text-[10px] font-black text-zinc-400 tracking-widest hover:bg-purple-600/10 hover:border-purple-500/30 hover:text-purple-400 transition-all"
                 >
-                  <BookOpen className="w-4 h-4" /> Samsung Academy Survey
+                  <BookOpen className="w-4 h-4" /> {activeSurveyDisplayName}
                 </button>
               </div>
             );
@@ -9860,295 +10003,66 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
           )}
 
           {/* ─── SAMSUNG ACADEMY SURVEY ───────────────────────────────────── */}
-          {view === 'SAMSUNG_ACADEMY_SURVEY' && (
-            <div dir="rtl" className="max-w-3xl mx-auto space-y-8 animate-in slide-in-from-bottom-4 duration-700 pb-20">
-              <div className="text-center space-y-3">
-                <div className="flex items-center justify-center gap-3">
-                  <div className="h-[1px] w-16 bg-blue-500/50" />
-                  <span className="text-[11px] font-black tracking-[0.35em] text-blue-300">SAMSUNG ACADEMY</span>
-                  <div className="h-[1px] w-16 bg-blue-500/50" />
-                </div>
-                <h2 className="text-3xl md:text-5xl font-black tracking-tight text-white">استبيان أكاديمية سامسونج</h2>
-                <p className="text-zinc-300 text-base md:text-lg">رأيك مهم جدا لتحسين جودة المحتوى وتجربة التدريب.</p>
-              </div>
-
-              {academySurveySent ? (
-                <div className="glass-card rounded-[2.5rem] p-10 md:p-14 flex flex-col items-center text-center space-y-5">
-                  <div className="w-20 h-20 rounded-full border border-emerald-500/40 bg-emerald-500/10 flex items-center justify-center">
-                    <CheckCircle className="w-10 h-10 text-emerald-400" />
-                  </div>
-                  <h3 className="text-2xl font-black text-white">شكرا لمشاركتك</h3>
-                  <p className="text-zinc-400">تم إرسال الاستبيان بنجاح.</p>
-                  <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                    <button
-                      onClick={() => {
-                        resetAcademySurvey();
-                        setView('SAMSUNG_ACADEMY_SURVEY');
-                      }}
-                      className="px-6 py-3 rounded-2xl bg-blue-600 text-white font-black text-sm hover:bg-blue-500 transition-all"
-                    >
-                      إرسال استبيان جديد
-                    </button>
-                    <button
-                      onClick={() => navigateTo('HOME')}
-                      className="px-6 py-3 rounded-2xl bg-zinc-900 text-zinc-300 border border-white/10 font-black text-sm hover:text-white hover:border-white/20 transition-all"
-                    >
-                      العودة للرئيسية
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="glass-card rounded-[2.5rem] p-6 md:p-10 space-y-7">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-sm md:text-base font-black text-zinc-200">الاسم</label>
-                      <input
-                        type="text"
-                        value={academySurvey.fullName}
-                        onChange={(e) => setAcademySurvey((prev) => ({ ...prev, fullName: e.target.value }))}
-                        placeholder="اكتب الاسم بالكامل"
-                        className="w-full rounded-2xl border border-white/15 bg-black/50 px-4 py-3 text-base font-semibold text-white outline-none focus:border-blue-500"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm md:text-base font-black text-zinc-200">رقم الهاتف</label>
-                      <input
-                        type="tel"
-                        value={academySurvey.phoneNumber}
-                        onChange={(e) => setAcademySurvey((prev) => ({ ...prev, phoneNumber: e.target.value }))}
-                        placeholder="مثال: 01012345678"
-                        className="w-full rounded-2xl border border-white/15 bg-black/50 px-4 py-3 text-base font-semibold text-white outline-none focus:border-blue-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-sm md:text-base font-black text-zinc-200">الشركة</label>
-                    <input
-                      type="text"
-                      value={academySurvey.company}
-                      onChange={(e) => setAcademySurvey((prev) => ({ ...prev, company: e.target.value }))}
-                      placeholder="اكتب اسم الشركة"
-                      className="w-full rounded-2xl border border-white/15 bg-black/50 px-4 py-3 text-base font-semibold text-white outline-none focus:border-blue-500"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-sm md:text-base font-black text-zinc-200">المنتج</label>
-                    <select
-                      value={academySurvey.product}
-                      onChange={(e) => setAcademySurvey((prev) => ({ ...prev, product: e.target.value }))}
-                      className="w-full rounded-2xl border border-white/15 bg-black/50 px-4 py-3 text-base font-semibold text-white outline-none focus:border-blue-500"
-                    >
-                      <option value="">اختر المنتج</option>
-                      {ACADEMY_PRODUCTS.map((product) => (
-                        <option key={product} value={product}>{product}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-sm md:text-base font-black text-zinc-200">موقع أكاديمية سامسونج</label>
-                    <select
-                      value={academySurvey.academyLocation}
-                      onChange={(e) => setAcademySurvey((prev) => ({ ...prev, academyLocation: e.target.value }))}
-                      className="w-full rounded-2xl border border-white/15 bg-black/50 px-4 py-3 text-base font-semibold text-white outline-none focus:border-blue-500"
-                    >
-                      <option value="">اختر الموقع</option>
-                      {SAMSUNG_ACADEMY_LOCATIONS.map((loc) => (
-                        <option key={loc} value={loc}>{loc}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="space-y-5 border-t border-white/10 pt-6">
-                    <p className="text-base md:text-lg font-black text-blue-300">تقييم التدريب</p>
-                    <p className="text-sm text-zinc-300 font-bold">
-                      التقييم من 1 إلى 10: <span className="text-red-300">1–6 غير راضي</span> | <span className="text-yellow-300">7–8 محايد</span> | <span className="text-emerald-300">9–10 راضي</span>
-                    </p>
-
-                    <div className="space-y-2">
-                      <label className="text-sm md:text-base font-black text-zinc-200">هل كان المحتوى مفيد وقيم؟ (1-10)</label>
-                      <div className="flex flex-wrap gap-2">
-                        {ACADEMY_RATING_SCALE.map((opt) => (
-                          <button
-                            key={opt}
-                            type="button"
-                            onClick={() => setAcademySurvey((prev) => ({ ...prev, contentValue: String(opt) }))}
-                            className={`px-4 py-2 rounded-xl border text-sm font-black transition-all ${academySurvey.contentValue === String(opt) ? 'border-blue-500 bg-blue-600/20 text-blue-300' : 'border-white/10 bg-zinc-900/60 text-zinc-300 hover:text-white'}`}
-                          >
-                            {opt}
-                          </button>
-                        ))}
-                      </div>
-                      {academySurvey.contentValue ? <p className="text-xs text-zinc-300 font-bold">التصنيف: {getSurveyRateBand(academySurvey.contentValue)}</p> : null}
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-sm md:text-base font-black text-zinc-200">هل كان شرح المدرب واضح وجيد؟ (1-10)</label>
-                      <div className="flex flex-wrap gap-2">
-                        {ACADEMY_RATING_SCALE.map((opt) => (
-                          <button
-                            key={opt}
-                            type="button"
-                            onClick={() => setAcademySurvey((prev) => ({ ...prev, trainerClarity: String(opt) }))}
-                            className={`px-4 py-2 rounded-xl border text-sm font-black transition-all ${academySurvey.trainerClarity === String(opt) ? 'border-blue-500 bg-blue-600/20 text-blue-300' : 'border-white/10 bg-zinc-900/60 text-zinc-300 hover:text-white'}`}
-                          >
-                            {opt}
-                          </button>
-                        ))}
-                      </div>
-                      {academySurvey.trainerClarity ? <p className="text-xs text-zinc-300 font-bold">التصنيف: {getSurveyRateBand(academySurvey.trainerClarity)}</p> : null}
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-sm md:text-base font-black text-zinc-200">هل تؤيد تدريبات اكثر من خلال أكاديمية سامسونج ؟ (1-10)</label>
-                      <div className="flex flex-wrap gap-2">
-                        {ACADEMY_RATING_SCALE.map((opt) => (
-                          <button
-                            key={opt}
-                            type="button"
-                            onClick={() => setAcademySurvey((prev) => ({ ...prev, needMoreSessions: String(opt) }))}
-                            className={`px-4 py-2 rounded-xl border text-sm font-black transition-all ${academySurvey.needMoreSessions === String(opt) ? 'border-blue-500 bg-blue-600/20 text-blue-300' : 'border-white/10 bg-zinc-900/60 text-zinc-300 hover:text-white'}`}
-                          >
-                            {opt}
-                          </button>
-                        ))}
-                      </div>
-                      {academySurvey.needMoreSessions ? <p className="text-xs text-zinc-300 font-bold">التصنيف: {getSurveyRateBand(academySurvey.needMoreSessions)}</p> : null}
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-sm md:text-base font-black text-zinc-200">هل فترة التدريب كانت مناسبة؟ (1-10)</label>
-                      <div className="flex flex-wrap gap-2">
-                        {ACADEMY_RATING_SCALE.map((opt) => (
-                          <button
-                            key={opt}
-                            type="button"
-                            onClick={() => setAcademySurvey((prev) => ({ ...prev, periodSuitable: String(opt) }))}
-                            className={`px-4 py-2 rounded-xl border text-sm font-black transition-all ${academySurvey.periodSuitable === String(opt) ? 'border-blue-500 bg-blue-600/20 text-blue-300' : 'border-white/10 bg-zinc-900/60 text-zinc-300 hover:text-white'}`}
-                          >
-                            {opt}
-                          </button>
-                        ))}
-                      </div>
-                      {academySurvey.periodSuitable ? <p className="text-xs text-zinc-300 font-bold">التصنيف: {getSurveyRateBand(academySurvey.periodSuitable)}</p> : null}
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-sm md:text-base font-black text-zinc-200">هل مكان التدريب والتجهيزات كانت مناسبة؟ (1-10)</label>
-                      <div className="flex flex-wrap gap-2">
-                        {ACADEMY_RATING_SCALE.map((opt) => (
-                          <button
-                            key={opt}
-                            type="button"
-                            onClick={() => setAcademySurvey((prev) => ({ ...prev, placeAccommodation: String(opt) }))}
-                            className={`px-4 py-2 rounded-xl border text-sm font-black transition-all ${academySurvey.placeAccommodation === String(opt) ? 'border-blue-500 bg-blue-600/20 text-blue-300' : 'border-white/10 bg-zinc-900/60 text-zinc-300 hover:text-white'}`}
-                          >
-                            {opt}
-                          </button>
-                        ))}
-                      </div>
-                      {academySurvey.placeAccommodation ? <p className="text-xs text-zinc-300 font-bold">التصنيف: {getSurveyRateBand(academySurvey.placeAccommodation)}</p> : null}
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-sm md:text-base font-black text-zinc-200">ملاحظات إضافية (اختياري)</label>
-                    <textarea
-                      value={academySurvey.notes}
-                      onChange={(e) => setAcademySurvey((prev) => ({ ...prev, notes: e.target.value }))}
-                      rows={4}
-                      placeholder="اكتب أي اقتراحات أو ملاحظات إضافية..."
-                      className="w-full rounded-2xl border border-white/15 bg-black/50 px-4 py-3 text-base font-medium text-white outline-none focus:border-blue-500 resize-none"
-                    />
-                  </div>
-
-                  <button
-                    onClick={async () => {
-                      const cleanPhone = String(academySurvey.phoneNumber || '').replace(/\s+/g, '');
-                      const cleanName = String(academySurvey.fullName || '').trim().replace(/\s+/g, ' ');
-                      if (!cleanName) { message.warning('من فضلك اكتب الاسم بالكامل.'); return; }
-                      const nameParts = cleanName.split(' ').filter(Boolean);
-                      if (nameParts.length < 2) {
-                        message.warning('الاسم يجب أن يكون ثنائي (الاسم الأول واسم العائلة).');
-                        return;
-                      }
-                      const cleanCompany = String(academySurvey.company || '').trim();
-                      if (!cleanCompany) { message.warning('من فضلك اكتب اسم الشركة.'); return; }
-                      if (!/^01(0|1|2|5)\d{8}$/.test(cleanPhone)) {
-                        message.warning('رقم الهاتف يجب أن يكون 11 رقم ويبدأ بـ 010 أو 011 أو 012 أو 015.');
-                        return;
-                      }
-                      if (!academySurvey.product) { message.warning('من فضلك اختر المنتج.'); return; }
-                      if (!academySurvey.academyLocation) { message.warning('من فضلك اختر موقع الأكاديمية.'); return; }
-                      if (!academySurvey.contentValue || !academySurvey.trainerClarity || !academySurvey.needMoreSessions || !academySurvey.periodSuitable || !academySurvey.placeAccommodation) {
-                        message.warning('من فضلك أكمل كل أسئلة التقييم.');
-                        return;
-                      }
-
-                      setIsSubmittingAcademySurvey(true);
-                      try {
-                        const gate = await fetch('/api/public/form-gate', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ form: 'survey' }),
-                        });
-                        if (!gate.ok) {
-                          message.error('Too many submissions. Please try again later.');
-                          return;
-                        }
-                        await saveSamsungAcademySurveyToDb({
-                          fullName: cleanName,
-                          phoneNumber: cleanPhone,
-                          company: cleanCompany,
-                          product: academySurvey.product,
-                          academyLocation: academySurvey.academyLocation,
-                          contentValue: academySurvey.contentValue,
-                          trainerClarity: academySurvey.trainerClarity,
-                          needMoreSessions: academySurvey.needMoreSessions,
-                          periodSuitable: academySurvey.periodSuitable,
-                          placeAccommodation: academySurvey.placeAccommodation,
-                          notes: academySurvey.notes.trim(),
-                          source: 'app',
-                          appMode: appMode || null,
-                        });
-                        logUserAction({
-                          action: 'Submitted Samsung Academy survey',
-                          category: 'SURVEY',
-                          details: {
-                            company: cleanCompany,
-                            product: academySurvey.product,
-                            academyLocation: academySurvey.academyLocation,
-                          },
-                        });
-                        setAcademySurveySent(true);
-                        surveyCompletedRef.current = true;
-                        trackFunnelStep('survey', 'completed', 'submit_success');
-                        message.success('تم إرسال الاستبيان بنجاح.');
-                      } catch (e) {
-                        console.error(e);
-                        message.error('حدث خطأ أثناء إرسال الاستبيان. حاول مرة أخرى.');
-                      } finally {
-                        setIsSubmittingAcademySurvey(false);
-                      }
-                    }}
-                    disabled={isSubmittingAcademySurvey}
-                    className="w-full rounded-2xl bg-blue-600 py-4 text-sm font-black text-white transition-all hover:bg-blue-500 disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    {isSubmittingAcademySurvey ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Send className="w-4 h-4" />}
-                    {isSubmittingAcademySurvey ? 'جاري الإرسال...' : 'إرسال الاستبيان'}
-                  </button>
-
-                  <button
-                    onClick={() => navigateTo('HOME')}
-                    className="w-full rounded-2xl border border-white/10 bg-zinc-900 py-3 text-xs font-black text-zinc-400 transition-all hover:text-white"
-                  >
-                    رجوع
-                  </button>
-                </div>
-              )}
+          {view === 'SAMSUNG_ACADEMY_SURVEY' && !academySurveySettingsLoaded && (
+            <div className="flex min-h-[50vh] items-center justify-center" role="status" aria-label="Loading survey">
+              <div className="h-8 w-8 rounded-full border-2 border-white/20 border-t-blue-500 animate-spin" />
             </div>
+          )}
+          {view === 'SAMSUNG_ACADEMY_SURVEY' && academySurveySettingsLoaded && (
+            <PublicSurveyForm
+              definition={activeSurveyDef}
+              answers={academySurvey}
+              onChange={setAcademySurvey}
+              sent={academySurveySent}
+              submitting={isSubmittingAcademySurvey}
+              onReset={() => {
+                resetAcademySurvey();
+                setView('SAMSUNG_ACADEMY_SURVEY');
+              }}
+              onBack={() => navigateTo('HOME')}
+              onSubmit={async () => {
+                const def = activeSurveyDefRef.current || activeSurveyDef;
+                const error = validateSurveyAnswers(def, academySurvey);
+                if (error) { message.warning(error); return; }
+                setIsSubmittingAcademySurvey(true);
+                try {
+                  const gate = await fetch('/api/public/form-gate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ form: 'survey' }),
+                  });
+                  if (!gate.ok) {
+                    message.error('Too many submissions. Please try again later.');
+                    return;
+                  }
+                  const payload = buildSurveyResponsePayload(def, academySurvey, {
+                    source: 'app',
+                    appMode: appMode || null,
+                  });
+                  await saveSamsungAcademySurveyToDb(payload);
+                  logUserAction({
+                    action: 'Submitted Samsung Academy survey',
+                    category: 'SURVEY',
+                    details: {
+                      surveyId: payload.surveyId,
+                      surveyName: payload.surveyName,
+                      company: payload.company,
+                      product: payload.product,
+                      academyLocation: payload.academyLocation,
+                    },
+                  });
+                  setAcademySurveySent(true);
+                  surveyCompletedRef.current = true;
+                  trackFunnelStep('survey', 'completed', 'submit_success');
+                  message.success(def.copy?.thanksBody || 'Sent.');
+                } catch (e) {
+                  console.error(e);
+                  message.error(def.language === 'ar' ? 'حدث خطأ أثناء إرسال الاستبيان. حاول مرة أخرى.' : 'Could not send. Please try again.');
+                } finally {
+                  setIsSubmittingAcademySurvey(false);
+                }
+              }}
+            />
           )}
 
           {/* ─── EXTERNAL LOGGING AREA ───────────────────────────────────── */}
@@ -10833,23 +10747,22 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
             onVisibleChange={setPwaInstallSheetOpen}
             onToast={(text) => message.info(text)}
           />
-          <NotifyAlertsBanner
-            ready={pwaReady && !pwaInstallSheetOpen}
-            blocked={pwaBlockedByCriticalUi || pwaInstallSheetOpen}
-            userId={employeeProfile?.uid || currentUser?.uid || null}
-            onToast={(text) => message.info(text)}
-          />
         </>
       )}
 
       {/* Floating Samsung Academy Survey Link */}
       {!isAdminPortal && !gogoOpen && portalRealm === 'TCS' && academySurveyPopupEnabled && showSurveyShortcut && view !== 'APP_SELECTION' && view !== 'PQA_DIVISION_SELECTION' && (
-        <div className="fixed right-5 top-[max(6rem,18%)] z-40 sm:top-1/2 sm:-translate-y-1/2">
+        <div
+          className="fixed right-5 top-[max(6rem,18%)] z-40 sm:top-1/2 sm:-translate-y-1/2"
+          lang={surveyLangAttr(activeSurveyDef)}
+          dir={surveyDir(activeSurveyDef)}
+          translate="no"
+        >
           <button
             onClick={dismissSurveyShortcut}
             className="absolute -top-2 -right-2 h-6 w-6 rounded-full border border-white/20 bg-zinc-900 text-white/80 hover:text-white hover:border-white/40 transition-all flex items-center justify-center"
-            title="إخفاء"
-            aria-label="Hide survey shortcut"
+            title={activeSurveyDef.copy?.hideShortcut || 'Hide'}
+            aria-label={activeSurveyDef.copy?.hideShortcut || 'Hide'}
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -10857,11 +10770,11 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
             onClick={openSurveyForm}
             data-gogo-target="survey"
             className="rounded-2xl bg-blue-600/95 px-4 py-3 shadow-[0_0_28px_rgba(37,99,235,0.85)] border border-blue-300/30 animate-pulse transition-all hover:scale-105 hover:bg-blue-500 active:scale-95"
-            title="Samsung Academy Survey"
+            title={activeSurveyDisplayName}
           >
-            <span className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-white">
-              <BookOpen className="w-4 h-4" />
-              Samsung Academy Survey
+            <span className="inline-flex items-center gap-2 text-[10px] font-black tracking-wider text-white notranslate" translate="no">
+              <BookOpen className="w-4 h-4 flex-shrink-0" />
+              {activeSurveyDisplayName}
             </span>
           </button>
         </div>

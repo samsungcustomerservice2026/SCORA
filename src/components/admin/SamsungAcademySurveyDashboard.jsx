@@ -1,15 +1,18 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { DatePicker } from 'antd';
 import dayjs from 'dayjs';
 import { RefreshCw, Download, Filter, X } from 'lucide-react';
-import { getSamsungAcademySurveys } from '../../services/firestoreService';
+import { getSamsungAcademySurveys, getSurveyDefinitions } from '../../services/firestoreService';
 import {
   buildSamsungAcademySurveyAnalytics,
+  buildSurveyReportSchema,
   filterSamsungAcademySurveys,
+  getSurveyChoices,
   getSurveyFilterOptions,
-  SURVEY_RATING_FIELDS,
+  responseSurveyId,
+  responseValue,
 } from '../../lib/samsungAcademySurveyAnalytics';
 import { downloadSamsungAcademySurveyWorkbook } from '../../lib/samsungAcademySurveyExport';
 import {
@@ -27,6 +30,19 @@ const DEFAULT_FILTERS = {
   dateTo: '',
   location: 'ALL',
   product: 'ALL',
+  surveyId: 'ALL',
+};
+
+const STAT_COLS = {
+  2: 'grid-cols-2',
+  3: 'grid-cols-2 md:grid-cols-3',
+  4: 'grid-cols-2 md:grid-cols-4',
+  5: 'grid-cols-2 md:grid-cols-3 xl:grid-cols-5',
+};
+
+const shortLabel = (label, max = 18) => {
+  const s = String(label || '').trim();
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 };
 
 const selectClass =
@@ -47,17 +63,37 @@ function BandStack({ bands, answered }) {
   );
 }
 
-export default function SamsungAcademySurveyDashboard({ message, onExported, allowExport = true }) {
+export default function SamsungAcademySurveyDashboard({
+  message,
+  onExported,
+  allowExport = true,
+  activeSurveyId = '',
+  definitions: liveDefinitions,
+}) {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [surveys, setSurveys] = useState([]);
+  const [fetchedDefinitions, setDefinitions] = useState([]);
+  /** Parent copy updates as soon as a survey is saved in the editor; own fetch is the fallback. */
+  const definitions = useMemo(() => {
+    const byId = new Map();
+    for (const d of fetchedDefinitions) if (d?.id) byId.set(d.id, d);
+    for (const d of liveDefinitions || []) if (d?.id) byId.set(d.id, d);
+    return [...byId.values()];
+  }, [fetchedDefinitions, liveDefinitions]);
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
+  const surveyFilterTouchedRef = useRef(false);
 
   const load = async () => {
     setLoading(true);
     try {
-      const data = await getSamsungAcademySurveys();
+      const [data, defs] = await Promise.all([getSamsungAcademySurveys(), getSurveyDefinitions()]);
       setSurveys(data);
+      setDefinitions(defs);
+      // Open on the displayed survey when it already has responses; otherwise show everything.
+      if (!surveyFilterTouchedRef.current && activeSurveyId && data.some((r) => responseSurveyId(r) === activeSurveyId)) {
+        setFilters((prev) => ({ ...prev, surveyId: activeSurveyId }));
+      }
     } catch (e) {
       console.error(e);
       message?.error?.('Failed to load survey responses.');
@@ -68,9 +104,22 @@ export default function SamsungAcademySurveyDashboard({ message, onExported, all
 
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const filterOptions = useMemo(() => getSurveyFilterOptions(surveys), [surveys]);
+  const surveyChoices = useMemo(() => getSurveyChoices(definitions, surveys), [definitions, surveys]);
+
+  const schema = useMemo(
+    () => buildSurveyReportSchema(definitions, filters.surveyId),
+    [definitions, filters.surveyId]
+  );
+
+  const surveyRows = useMemo(
+    () => filterSamsungAcademySurveys(surveys, { surveyId: filters.surveyId }),
+    [surveys, filters.surveyId]
+  );
+
+  const filterOptions = useMemo(() => getSurveyFilterOptions(surveyRows, schema), [surveyRows, schema]);
 
   const filteredSurveys = useMemo(
     () => filterSamsungAcademySurveys(surveys, filters),
@@ -78,15 +127,18 @@ export default function SamsungAcademySurveyDashboard({ message, onExported, all
   );
 
   const analytics = useMemo(
-    () => buildSamsungAcademySurveyAnalytics(filteredSurveys),
-    [filteredSurveys]
+    () => buildSamsungAcademySurveyAnalytics(filteredSurveys, schema),
+    [filteredSurveys, schema]
   );
+
+  const tableFields = schema.profileFields.filter((f) => f.type !== 'tel');
 
   const hasActiveFilters =
     !!filters.dateFrom ||
     !!filters.dateTo ||
     filters.location !== 'ALL' ||
-    filters.product !== 'ALL';
+    filters.product !== 'ALL' ||
+    filters.surveyId !== 'ALL';
 
   const toDayKey = (d) => (d && d.isValid() ? d.format('YYYY-MM-DD') : '');
 
@@ -100,7 +152,8 @@ export default function SamsungAcademySurveyDashboard({ message, onExported, all
       const { fileName, count } = downloadSamsungAcademySurveyWorkbook(
         filteredSurveys,
         filters,
-        surveys.length
+        surveys.length,
+        { schema, surveyChoices }
       );
       message?.success?.(`Exported ${count} responses to ${fileName}`);
       onExported?.({
@@ -117,9 +170,18 @@ export default function SamsungAcademySurveyDashboard({ message, onExported, all
     }
   };
 
-  const clearFilters = () => setFilters(DEFAULT_FILTERS);
+  const clearFilters = () => {
+    surveyFilterTouchedRef.current = true;
+    setFilters(DEFAULT_FILTERS);
+  };
 
   const updateFilter = (key, value) => {
+    if (key === 'surveyId') {
+      surveyFilterTouchedRef.current = true;
+      // Location/product options differ per survey, so reset them with the survey.
+      setFilters((prev) => ({ ...prev, surveyId: value, location: 'ALL', product: 'ALL' }));
+      return;
+    }
     setFilters((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -130,7 +192,7 @@ export default function SamsungAcademySurveyDashboard({ message, onExported, all
           <p className="text-[9px] font-black uppercase tracking-[0.35em] text-emerald-500/90">Samsung Academy</p>
           <h3 className="text-lg font-black text-white uppercase tracking-tight">Survey analysis</h3>
           <p className="text-[10px] text-zinc-500 font-medium mt-1">
-            Egypt regions include Cairo, Alexandria, Assiut, and Tanta. Charts, geo map, and export use the same filters.
+            Pick a survey to see its own questions. Charts, table, and Excel export all follow the same survey and filters.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -168,7 +230,22 @@ export default function SamsungAcademySurveyDashboard({ message, onExported, all
               <span className="text-zinc-300">{surveys.length}</span> responses
             </p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 ml-1">Survey</label>
+              <select
+                value={filters.surveyId}
+                onChange={(e) => updateFilter('surveyId', e.target.value)}
+                className={selectClass}
+              >
+                <option value="ALL">All surveys ({surveys.length})</option>
+                {surveyChoices.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.count}){s.deleted ? ' · deleted' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className={`space-y-1.5 ${datePickerClass}`}>
               <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 ml-1">From date</label>
               <DatePicker
@@ -200,6 +277,7 @@ export default function SamsungAcademySurveyDashboard({ message, onExported, all
               />
             </div>
 
+            {schema.hasLocation && (
             <div className="space-y-1.5">
               <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 ml-1">Location</label>
               <select
@@ -215,6 +293,8 @@ export default function SamsungAcademySurveyDashboard({ message, onExported, all
                 ))}
               </select>
             </div>
+            )}
+            {schema.hasProduct && (
             <div className="space-y-1.5">
               <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 ml-1">Product</label>
               <select
@@ -230,6 +310,7 @@ export default function SamsungAcademySurveyDashboard({ message, onExported, all
                 ))}
               </select>
             </div>
+            )}
           </div>
           {hasActiveFilters && (
             <button
@@ -253,27 +334,41 @@ export default function SamsungAcademySurveyDashboard({ message, onExported, all
       ) : filteredSurveys.length === 0 ? (
         <div className="py-16 text-center rounded-[2rem] border border-amber-500/20 bg-amber-950/10">
           <p className="text-[10px] font-black uppercase tracking-widest text-amber-300">No responses match these filters</p>
-          <p className="text-[10px] text-zinc-500 mt-2">Adjust dates, location, or product and try again.</p>
+          <p className="text-[10px] text-zinc-500 mt-2">
+            {filters.surveyId !== 'ALL' && !surveyRows.length
+              ? 'This survey has no responses yet. Pick another survey or “All surveys”.'
+              : 'Adjust the survey, dates, location, or product and try again.'}
+          </p>
         </div>
       ) : (
         <>
           <div className="report-studio space-y-5">
             <StudioStatGrid
+              cols={STAT_COLS[2 + (analytics.hasRatings ? 2 : 0) + (schema.hasLocation ? 1 : 0)]}
               items={[
                 { label: 'Responses', value: analytics.total },
-                {
-                  label: 'Avg score',
-                  text: analytics.overallAverage != null ? String(analytics.overallAverage) : '—',
-                },
-                { label: 'Fully satisfied', value: analytics.satisfiedRate, suffix: '%' },
-                {
-                  label: 'Egypt cities',
-                  text: String((analytics.geo?.pins || []).filter((p) => p.count > 0).length || 0),
-                },
+                ...(analytics.hasRatings
+                  ? [
+                      {
+                        label: 'Avg score',
+                        text: analytics.overallAverage != null ? String(analytics.overallAverage) : '—',
+                      },
+                      { label: 'Fully satisfied', value: analytics.satisfiedRate, suffix: '%' },
+                    ]
+                  : []),
+                { label: 'Questions', text: String(schema.questions.length) },
+                ...(schema.hasLocation
+                  ? [{
+                      label: 'Egypt cities',
+                      text: String((analytics.geo?.pins || []).filter((p) => p.count > 0).length || 0),
+                    }]
+                  : []),
               ]}
             />
 
+            {(schema.hasLocation || analytics.questionStats.length >= 3) && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {schema.hasLocation && (
               <StudioPanel title="Egypt activity map · academy cities">
                 <StudioEgyptGeoMap
                   pins={analytics.geo?.pins || []}
@@ -281,19 +376,25 @@ export default function SamsungAcademySurveyDashboard({ message, onExported, all
                   countryLabel="Egypt"
                 />
               </StudioPanel>
+              )}
+              {analytics.questionStats.length >= 3 && (
               <StudioPanel title="Score radar (1–10)">
                 <StudioRadar
-                  axes={(analytics.questionStats || []).map((q) => ({
+                  axes={analytics.questionStats.map((q) => ({
                     key: q.key,
-                    label: q.label,
+                    label: shortLabel(q.label, 24),
                     value: q.average,
                   }))}
                   maxValue={10}
                 />
               </StudioPanel>
+              )}
             </div>
+            )}
 
+            {(schema.hasLocation || analytics.fieldBreakdowns.length > 0) && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {schema.hasLocation && (
               <StudioPanel title="By academy location">
                 <StudioHBars
                   items={
@@ -306,10 +407,14 @@ export default function SamsungAcademySurveyDashboard({ message, onExported, all
                   }
                 />
               </StudioPanel>
-              <StudioPanel title="By product">
-                <StudioHBars items={analytics.byProduct} />
-              </StudioPanel>
+              )}
+              {analytics.fieldBreakdowns.map((b) => (
+                <StudioPanel key={b.key} title={`By ${b.label}`}>
+                  <StudioHBars items={b.items} />
+                </StudioPanel>
+              ))}
             </div>
+            )}
 
             {analytics.byDay.length > 0 && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -319,6 +424,7 @@ export default function SamsungAcademySurveyDashboard({ message, onExported, all
                     primaryLabel="Responses"
                   />
                 </StudioPanel>
+                {analytics.hasRatings && (
                 <StudioPanel title="Satisfaction bands">
                   <StudioDonut
                     centerValue={analytics.total}
@@ -341,6 +447,7 @@ export default function SamsungAcademySurveyDashboard({ message, onExported, all
                     })()}
                   />
                 </StudioPanel>
+                )}
               </div>
             )}
 
@@ -354,9 +461,10 @@ export default function SamsungAcademySurveyDashboard({ message, onExported, all
             )}
           </div>
 
+          {analytics.questionStats.length > 0 && (
           <div className="rounded-[1.75rem] border border-white/10 bg-zinc-950/70 p-6 space-y-5 relative overflow-hidden report-studio-panel">
             <div className="report-studio-grid" aria-hidden />
-            <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500 relative z-[1]">Question scores (1–10)</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500 relative z-[1]">Rating questions (1–10)</p>
             <div className="space-y-4 relative z-[1]">
               {analytics.questionStats.map((q) => (
                 <div key={q.key} className="space-y-2 border-b border-white/5 pb-4 last:border-0 last:pb-0">
@@ -374,6 +482,35 @@ export default function SamsungAcademySurveyDashboard({ message, onExported, all
               ))}
             </div>
           </div>
+          )}
+
+          {analytics.choiceStats.length > 0 && (
+          <div className="rounded-[1.75rem] border border-white/10 bg-zinc-950/70 p-6 space-y-5 relative overflow-hidden report-studio-panel">
+            <div className="report-studio-grid" aria-hidden />
+            <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500 relative z-[1]">Single choice questions</p>
+            <div className="space-y-5 relative z-[1]">
+              {analytics.choiceStats.map((q) => (
+                <div key={q.key} className="space-y-2 border-b border-white/5 pb-4 last:border-0 last:pb-0">
+                  <div className="flex justify-between items-baseline gap-2">
+                    <span className="text-[10px] font-bold text-zinc-300">{q.label}</span>
+                    <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">{q.answered} answered</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {q.options.map((o) => (
+                      <div key={o.name} className="flex items-center gap-3">
+                        <span className="w-32 flex-shrink-0 truncate text-[10px] font-bold text-zinc-300" title={o.name}>{o.name}</span>
+                        <div className="flex-1 h-2 rounded-full bg-white/5 overflow-hidden">
+                          <div className="h-full bg-zinc-200 report-studio-hbar" style={{ width: `${o.share}%` }} />
+                        </div>
+                        <span className="w-16 text-right text-[10px] font-black text-white">{o.count} · {o.share}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          )}
 
           <div className="rounded-[2rem] border border-white/10 bg-zinc-900/40 p-6 overflow-x-auto">
             <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-4">
@@ -382,12 +519,15 @@ export default function SamsungAcademySurveyDashboard({ message, onExported, all
             <table className="w-full text-left text-[10px]">
               <thead>
                 <tr className="text-zinc-500 uppercase tracking-widest border-b border-white/5">
-                  <th className="pb-2 pr-3">Name</th>
-                  <th className="pb-2 pr-3">Location</th>
-                  <th className="pb-2 pr-3">Product</th>
-                  {SURVEY_RATING_FIELDS.map((f) => (
-                    <th key={f.key} className="pb-2 pr-2 text-center" title={f.label}>
-                      {f.label.split(' ')[0]}
+                  {filters.surveyId === 'ALL' && <th className="pb-2 pr-3">Survey</th>}
+                  {tableFields.map((f) => (
+                    <th key={f.id} className="pb-2 pr-3 whitespace-nowrap" title={f.label}>
+                      {shortLabel(f.label, 14)}
+                    </th>
+                  ))}
+                  {schema.questions.map((q) => (
+                    <th key={q.key} className="pb-2 pr-2 text-center whitespace-nowrap" title={q.label}>
+                      {shortLabel(q.label, 14)}
                     </th>
                   ))}
                   <th className="pb-2">Date</th>
@@ -400,12 +540,19 @@ export default function SamsungAcademySurveyDashboard({ message, onExported, all
                   .slice(0, 50)
                   .map((r) => (
                     <tr key={r.id} className="border-b border-white/5 text-zinc-300">
-                      <td className="py-2 pr-3 font-bold text-white">{r.fullName || '—'}</td>
-                      <td className="py-2 pr-3">{r.academyLocation || '—'}</td>
-                      <td className="py-2 pr-3">{r.product || '—'}</td>
-                      {SURVEY_RATING_FIELDS.map((f) => (
-                        <td key={f.key} className="py-2 pr-2 text-center font-black">
-                          {r[f.key] || '—'}
+                      {filters.surveyId === 'ALL' && (
+                        <td className="py-2 pr-3 whitespace-nowrap">
+                          {surveyChoices.find((s) => s.id === responseSurveyId(r))?.name || r.surveyName || '—'}
+                        </td>
+                      )}
+                      {tableFields.map((f, i) => (
+                        <td key={f.id} className={`py-2 pr-3 ${i === 0 ? 'font-bold text-white' : ''}`}>
+                          {responseValue(r, f.id) || '—'}
+                        </td>
+                      ))}
+                      {schema.questions.map((q) => (
+                        <td key={q.key} className="py-2 pr-2 text-center font-black whitespace-nowrap">
+                          {responseValue(r, q.key) || '—'}
                         </td>
                       ))}
                       <td className="py-2 text-zinc-500">{String(r.createdAt || '').slice(0, 10)}</td>

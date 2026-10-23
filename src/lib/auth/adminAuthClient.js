@@ -1,8 +1,11 @@
 /**
- * Admin authentication (client).
- * Order:
- * 1) Firebase Auth email/password
- * 2) Legacy Firestore username + passwordB64 (when rules allow read)
+ * Admin authentication (client). Firebase Auth email/password only.
+ *
+ * The legacy Firestore username + passwordB64 path has been removed: it read
+ * every admins/{id} doc, which required the collection to be world-readable
+ * and exposed reversible credentials. Firestore rules now allow a client to
+ * read only its own admins/{uid} doc; the directory is served by
+ * /api/admin/accounts under the Admin SDK.
  */
 import {
   signInWithEmailAndPassword,
@@ -11,7 +14,7 @@ import {
   setPersistence,
   browserLocalPersistence,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, query, where, limit, getDocs } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebase';
 import { ROLES } from './roles';
 
@@ -58,42 +61,45 @@ export function shapeAdminUser(uid, data = {}, email = '') {
 
 export async function loadAdminProfile(uid, email = '') {
   if (!uid) return null;
+  // Rules permit exactly this read: the caller's own admins/{uid} document.
   try {
     const byId = await getDoc(doc(db, 'admins', uid));
     if (byId.exists()) return shapeAdminUser(uid, byId.data(), email);
   } catch {
-    /* continue */
-  }
-  try {
-    const q = query(collection(db, 'admins'), where('firebaseUid', '==', uid), limit(1));
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      const d = snap.docs[0];
-      return shapeAdminUser(uid, { ...d.data(), id: d.id }, email);
-    }
-  } catch {
-    /* continue */
+    /* fall through to the server lookup below */
   }
 
+  // Legacy documents are keyed by username and only carry firebaseUid, which a
+  // client cannot query under the current rules. Resolve those server-side.
+  try {
+    const { authFetch } = await import('./clientAuth');
+    const res = await authFetch('/api/admin/accounts?self=1', { method: 'GET' });
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (data?.admin) return shapeAdminUser(uid, data.admin, email);
+    }
+  } catch {
+    /* fall through to the owner unlock below */
+  }
+
+  // Owner unlock so the first SUPER_ADMIN can still reach the portal before the
+  // admins/{uid} document exists. The document itself must be provisioned by
+  // /api/admin/bootstrap — the client can no longer write it.
   const normalizedEmail = String(email || '').trim().toLowerCase();
   if (normalizedEmail === BOOTSTRAP_OWNER_EMAIL) {
-    const seed = {
-      firebaseUid: uid,
-      email: BOOTSTRAP_OWNER_EMAIL,
-      username: BOOTSTRAP_OWNER_USERNAME,
-      name: 'Fawzy',
-      role: 'SUPER_ADMIN',
-      access: 'ALL',
-      migrationAuth: true,
-      updatedAt: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-    };
-    try {
-      await setDoc(doc(db, 'admins', uid), seed, { merge: true });
-    } catch {
-      /* live rules may still deny — session still works via seed below */
-    }
-    return shapeAdminUser(uid, seed, BOOTSTRAP_OWNER_EMAIL);
+    return shapeAdminUser(
+      uid,
+      {
+        firebaseUid: uid,
+        email: BOOTSTRAP_OWNER_EMAIL,
+        username: BOOTSTRAP_OWNER_USERNAME,
+        name: 'Fawzy',
+        role: 'SUPER_ADMIN',
+        access: 'ALL',
+        migrationAuth: true,
+      },
+      BOOTSTRAP_OWNER_EMAIL,
+    );
   }
 
   return null;
@@ -115,38 +121,6 @@ function isAuthNotConfigured(err) {
     code === 'auth/admin-restricted-operation' ||
     /configuration-not-found|OPERATION_NOT_ALLOWED|Identity Toolkit/i.test(msg)
   );
-}
-
-function encodePasswordCandidates(password) {
-  const plain = String(password ?? '');
-  const out = new Set();
-  try {
-    out.add(window.btoa(plain));
-  } catch {
-    /* ignore */
-  }
-  try {
-    out.add(window.btoa(unescape(encodeURIComponent(plain))));
-  } catch {
-    /* ignore */
-  }
-  return [...out];
-}
-
-function passwordMatchesStored(storedRaw, password) {
-  const stored = String(storedRaw || '');
-  if (!stored) return false;
-  if (stored === password) return true;
-  return encodePasswordCandidates(password).includes(stored);
-}
-
-function saveMigrationSession(profile) {
-  if (typeof window === 'undefined') return;
-  try {
-    sessionStorage.setItem(MIGRATION_SESSION_KEY, JSON.stringify({ profile, loginAt: Date.now() }));
-  } catch {
-    /* ignore */
-  }
 }
 
 export function readMigrationSession() {
@@ -175,144 +149,54 @@ export function clearMigrationSession() {
   }
 }
 
-async function loadAllAdminsForMigration() {
-  try {
-    const snap = await getDocs(collection(db, 'admins'));
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  } catch (err) {
-    const code = String(err?.code || '');
-    if (code === 'permission-denied' || /insufficient permissions/i.test(String(err?.message || ''))) {
-      const e = new Error('admins_unreadable');
-      e.code = 'admins_unreadable';
-      throw e;
-    }
-    throw err;
-  }
-}
-
-/** Legacy: Firestore passwordB64 */
-export async function signInAdminLegacy(loginId, password) {
-  const username = String(loginId || '').trim();
-  if (!username || password == null || password === '') {
-    throw new Error('User or Password are wrong');
-  }
-
-  const rows = await loadAllAdminsForMigration();
-  if (!rows.length) {
-    const e = new Error('No admin accounts found in Firestore.');
-    e.code = 'no_admins';
-    throw e;
-  }
-
-  const userMatch = rows.find(
-    (a) => String(a.username || '').trim().toLowerCase() === username.toLowerCase(),
-  );
-  if (!userMatch) {
-    const known = rows.map((a) => a.username).filter(Boolean).slice(0, 12).join(', ');
-    const e = new Error(known ? `Unknown admin "${username}". Found: ${known}` : `Unknown admin "${username}".`);
-    e.code = 'unknown_user';
-    throw e;
-  }
-
-  const stored = userMatch.passwordB64 || userMatch.password_b64 || userMatch.password || '';
-  if (!passwordMatchesStored(stored, password)) {
-    const e = new Error('User or Password are wrong');
-    e.code = 'bad_password';
-    throw e;
-  }
-
-  if (userMatch.username === 'fawzy.m' || userMatch.username === 'g.samir') {
-    userMatch.role = 'SUPER_ADMIN';
-    userMatch.access = 'ALL';
-  }
-
-  const profile = shapeAdminUser(userMatch.id || userMatch.username, {
-    ...userMatch,
-    migrationAuth: true,
-  });
-  saveMigrationSession(profile);
-  saveAdminUiPrefs({ username: profile.username, name: profile.name });
-  return { user: null, profile, migration: true };
-}
-
-async function resolveLoginEmail(loginId) {
+/**
+ * Map a login id to the Firebase Auth email. A bare username cannot be looked
+ * up in Firestore any more, so it resolves through the owner mapping or the
+ * internal address convention.
+ */
+function resolveLoginEmail(loginId) {
   const raw = String(loginId || '').trim();
   if (!raw) return '';
   if (raw.includes('@')) return raw.toLowerCase();
   if (raw.toLowerCase() === BOOTSTRAP_OWNER_USERNAME) return BOOTSTRAP_OWNER_EMAIL;
-  try {
-    const q = query(collection(db, 'admins'), where('username', '==', raw), limit(1));
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      const email = String(snap.docs[0].data()?.email || '').trim();
-      if (email.includes('@')) return email.toLowerCase();
-    }
-  } catch {
-    /* admins may be unreadable */
-  }
   return toAuthEmail(raw);
 }
 
-/**
- * Firebase Auth email/password, then legacy Firestore username+passwordB64.
- */
+/** Firebase Auth email/password sign-in. */
 export async function signInAdmin(loginId, password) {
   const raw = String(loginId || '').trim();
-  const looksLikeEmail = raw.includes('@');
+  const email = resolveLoginEmail(loginId);
+  if (!email) throw new Error('Enter your admin email or username.');
 
-  // Prefer Firebase Auth first (email, or username → mapped email / convention)
-  try {
-    await setPersistence(auth, browserLocalPersistence);
-    const email = await resolveLoginEmail(loginId);
-    const cred = await signInWithEmailAndPassword(auth, email, password);
-    clearMigrationSession();
-    const profile = await loadAdminProfile(cred.user.uid, cred.user.email || email);
-    if (profile) {
-      saveAdminUiPrefs({ username: profile.username || raw, name: profile.name });
-      return { user: cred.user, profile };
-    }
-    await signOut(auth);
-    throw new Error('Signed in, but no admin profile is linked to this account.');
-  } catch (authErr) {
-    if (
-      authErr?.message === 'Signed in, but no admin profile is linked to this account.'
-    ) {
-      throw authErr;
-    }
-    if (
-      !isAuthNotConfigured(authErr) &&
-      authErr?.code !== 'auth/invalid-credential' &&
-      authErr?.code !== 'auth/user-not-found' &&
-      authErr?.code !== 'auth/wrong-password'
-    ) {
-      /* continue to legacy */
-    }
-  }
-
-  // Username → legacy Firestore
-  if (!looksLikeEmail) {
-    return signInAdminLegacy(loginId, password);
-  }
-
-  // Email → Firebase Auth (retry path)
   await setPersistence(auth, browserLocalPersistence);
-  const email = toAuthEmail(loginId);
+
+  let cred;
   try {
-    const cred = await signInWithEmailAndPassword(auth, email, password);
-    clearMigrationSession();
-    const profile = await loadAdminProfile(cred.user.uid, cred.user.email || email);
-    if (!profile) {
-      await signOut(auth);
-      throw new Error('Signed in, but no admin profile is linked to this account.');
-    }
-    saveAdminUiPrefs({ username: profile.username, name: profile.name });
-    return { user: cred.user, profile };
+    cred = await signInWithEmailAndPassword(auth, email, password);
   } catch (err) {
-    if (isAuthNotConfigured(err) || err?.code === 'auth/invalid-credential') {
-      return signInAdminLegacy(loginId, password);
+    if (isAuthNotConfigured(err)) {
+      throw new Error('Firebase Authentication is not enabled for this project.');
+    }
+    if (
+      err?.code === 'auth/invalid-credential' ||
+      err?.code === 'auth/user-not-found' ||
+      err?.code === 'auth/wrong-password'
+    ) {
+      throw new Error('User or Password are wrong');
     }
     throw new Error(err?.message || 'Authentication failed');
   }
+
+  clearMigrationSession();
+  const profile = await loadAdminProfile(cred.user.uid, cred.user.email || email);
+  if (!profile) {
+    await signOut(auth);
+    throw new Error(
+      'Signed in, but no admin profile is linked to this account. Ask a SUPER_ADMIN to provision it via /api/admin/bootstrap.',
+    );
+  }
+  saveAdminUiPrefs({ username: profile.username || raw, name: profile.name });
+  return { user: cred.user, profile };
 }
 
 export async function signOutAdmin() {
