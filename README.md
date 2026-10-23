@@ -1,13 +1,15 @@
-# 🚀 TCS — Technical Capability System
+# 🚀 SCORA — Samsung EG
 
-A premium, data-driven **Engineer Performance and Ranking Platform** built with **Next.js 16** and **Firebase**. This system gamifies the technical excellence of field service engineers by dynamically measuring their monthly and quarterly KPIs, translating them into a unified **Technical Capability Score (TCS)**, and assigning them prestigious **Tiers**.
+**SCORA** is the Samsung EG platform for engineer performance and service quality: **TCS** (Technical Capability System) engineer rankings, **PQA** audits, **SCORA Challenge** live quizzes, the **GoGo** assistant, surveys and a secure admin portal. It is built with **Next.js 16** and **Firebase**.
+
+The TCS module is a data-driven **Engineer Performance and Ranking Platform**. It gamifies the technical excellence of field service engineers by dynamically measuring their monthly and quarterly KPIs, translating them into a unified **Technical Capability Score (TCS)**, and assigning them prestigious **Tiers**.
 
  *"Precision Defines Rank. Earn Your Tier • Own Your Title."*
 
 ---
 
 ## 🌟 What is this project?
-The **TCS Ecosystem** replaces subjective engineer evaluations with a transparent, visually stunning, and competitive performance hub. It moves beyond standard databases to provide a dynamic, real-time leaderboard ("The Podium") and a secure administrative command center. 
+The **SCORA ecosystem** replaces subjective engineer evaluations with a transparent, visually stunning, and competitive performance hub. It moves beyond standard databases to provide a dynamic, real-time leaderboard ("The Podium") and a secure administrative command center. 
 
 By tracking core metrics—operational KPIs, Customer Satisfaction (DRNPS), and technical Exam Scores—it calculates a sophisticated **Technical Capability Score (TCS)**. This assigns engineers to dynamic tiers ranging from **Bronze** to **Masters**, while giving them a personal dashboard to trace their historical growth.
 

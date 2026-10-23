@@ -44,9 +44,9 @@ export const viewport = {
 };
 
 export const metadata = {
-  title: "TCS — Technical Capability System | Samsung Engineers",
-  description: "Track, rank, and reward Samsung field engineers with the Technical Capability System (TCS). Transparent scoring based on KPIs, DRNPS, and exam performance.",
-  keywords: ["TCS", "Technical Capability System", "Samsung", "engineer ranking", "KPI", "DRNPS", "field engineer"],
+  title: "SCORA — Samsung EG",
+  description: "SCORA by Samsung EG: TCS engineer rankings, PQA audits, SCORA Challenge live quizzes, the GoGo assistant and surveys. Transparent scoring based on KPIs, DRNPS, and exam performance.",
+  keywords: ["SCORA", "Samsung EG", "TCS", "Technical Capability System", "PQA", "SCORA Challenge", "engineer ranking", "KPI", "DRNPS", "field engineer"],
   authors: [{ name: "Samsung Service Operations" }],
   robots: "index, follow",
   manifest: "/manifest.webmanifest",
@@ -59,16 +59,16 @@ export const metadata = {
     "mobile-web-app-capable": "yes",
   },
   openGraph: {
-    title: "TCS — Technical Capability System",
+    title: "SCORA — Samsung EG",
     description: "Earn Your Tier • Own Your Title. Samsung's transparent engineering performance framework.",
     url: SCORA_MAIN_ORIGIN,
-    siteName: "TCS For Engineers",
+    siteName: "SCORA",
     images: [
       {
         url: `${SCORA_MAIN_ORIGIN}/sam_logo.png`,
         width: 800,
         height: 400,
-        alt: "TCS For Engineers",
+        alt: "SCORA — Samsung EG",
       },
     ],
     locale: "en_US",
@@ -76,7 +76,7 @@ export const metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "TCS — Technical Capability System",
+    title: "SCORA — Samsung EG",
     description: "Earn Your Tier • Own Your Title. Samsung's engineering performance framework.",
     images: [`${SCORA_MAIN_ORIGIN}/sam_logo.png`],
   },
