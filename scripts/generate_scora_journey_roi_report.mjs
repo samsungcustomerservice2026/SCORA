@@ -161,7 +161,7 @@ const children = [
   meta('Document class', 'Executive architecture & ROI brief'),
   meta('Codebase', 'fawzy-project (next-version 0.1.0)'),
   meta('Firebase project', 'tcs-for-engineers'),
-  meta('Repository', 'https://github.com/samsungcustomerservice2026/TCS-PQA'),
+  meta('Repository', 'https://github.com/samsungcustomerservice2026/SCORA'),
   meta('Report date', 'July 2026'),
   meta('Accuracy basis', 'Active codebase, README, and 2026 delivery sessions'),
 
