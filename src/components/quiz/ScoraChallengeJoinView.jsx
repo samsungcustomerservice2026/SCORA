@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { getQuizSessionByPin, joinQuizSession } from '../../services/quizService';
 import { QUIZ_PIN_LENGTH } from '../../constants/quiz';
 import { normalizeQuizSettings } from '../../lib/quizSessionHelpers';
-import { scoraChallengePlayPath } from '../../constants/scoraChallengePaths';
+import { SCORA_CHALLENGE_LOGO_SRC, scoraChallengePlayPath } from '../../constants/scoraChallengePaths';
 
 const NICK_PARTS = ['Swift', 'Blue', 'Mega', 'Super', 'Cosmic', 'Turbo', 'Nova', 'Pixel', 'Flash', 'Star'];
 const NICK_SUFFIX = ['Fox', 'Wolf', 'Hawk', 'Tiger', 'Eagle', 'Ninja', 'Hero', 'Ace', 'Pro', 'King'];
@@ -23,6 +23,7 @@ const T = {
     enter: 'Enter',
     joining: 'Joining…',
     back: '← Back',
+    home: '← Back to portals',
     lang: 'العربية',
     pinIncomplete: 'Enter the full 6-digit game PIN.',
     noActiveGame: 'No active game with this PIN yet. Ask your host to start, then try again.',
@@ -37,6 +38,7 @@ const T = {
     enter: 'دخول',
     joining: 'جاري الانضمام…',
     back: '→ رجوع',
+    home: '→ العودة للبوابات',
     lang: 'English',
     pinIncomplete: 'أدخل رمز اللعبة المكون من 6 أرقام.',
     noActiveGame: 'لا توجد لعبة نشطة بهذا الرمز بعد. اطلب من المضيف البدء ثم حاول مرة أخرى.',
@@ -168,8 +170,12 @@ export default function ScoraChallengeJoinView() {
       </button>
 
       <div className="relative z-10 flex-1 flex flex-col items-center justify-start sm:justify-center px-4 py-10 sm:py-16 overflow-y-auto">
-        <div className="text-center mb-10 md:mb-12 space-y-2">
-          <p className="text-[10px] font-black uppercase tracking-[0.4em] text-orange-400">SCORA Challenge</p>
+        <div className="text-center mb-10 md:mb-12 space-y-3">
+          <img
+            src={SCORA_CHALLENGE_LOGO_SRC}
+            alt="SCORA Challenge"
+            className="mx-auto h-20 sm:h-24 md:h-28 w-auto max-w-[min(100%,22rem)] object-contain rounded-xl"
+          />
           <h1 className="text-3xl md:text-5xl font-black text-white uppercase tracking-tight">
             {step === 1 ? (lang === 'ar' ? 'انضم للعبة' : 'Join game') : t.nickLabel}
           </h1>
@@ -202,6 +208,13 @@ export default function ScoraChallengeJoinView() {
             {error && (
               <p className="text-center text-amber-400 text-xs font-bold leading-relaxed px-2">{error}</p>
             )}
+            <button
+              type="button"
+              onClick={() => router.push('/')}
+              className="w-full text-center text-zinc-500 hover:text-white text-[10px] font-black uppercase tracking-widest py-2"
+            >
+              {t.home}
+            </button>
           </form>
         ) : (
           <form onSubmit={handleNickStep} className="w-full max-w-md space-y-4">

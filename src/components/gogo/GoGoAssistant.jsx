@@ -18,6 +18,7 @@ import { GOGO_SMART_CHIPS } from '../../lib/gogoGeminiContext';
 import { prepareGoGoReplyPair } from '../../lib/gogoSpeechText';
 import {
   resolveGoGoTraditionalTurn,
+  resolveGoGoAdminQaTurn,
   resolveGoGoLearnedTurn,
   resolveGoGoSafeFallback,
 } from '../../lib/gogoRouter';
@@ -46,6 +47,7 @@ import {
 import {
   getOrCreateGoGoVisitorId,
   getGoGoLearnedEntries,
+  getPublishedGoGoQaEntries,
   lookupGoGoProductAnswer,
   loadGoGoChatLocal,
   markGoGoLearnedWeak,
@@ -233,6 +235,7 @@ export default function GoGoAssistant({
   const [micSupported, setMicSupported] = useState(false);
   const [micHint, setMicHint] = useState('');
   const [learnedEntries, setLearnedEntries] = useState([]);
+  const [adminQaEntries, setAdminQaEntries] = useState([]);
   const listRef = useRef(null);
   const micFinalSentRef = useRef(false);
   const guideTimersRef = useRef([]);
@@ -433,6 +436,9 @@ export default function GoGoAssistant({
 
     void getGoGoLearnedEntries().then((rows) => {
       if (!cancelled && Array.isArray(rows)) setLearnedEntries(rows);
+    });
+    void getPublishedGoGoQaEntries().then((rows) => {
+      if (!cancelled && Array.isArray(rows)) setAdminQaEntries(rows);
     });
 
     setReady(true);
@@ -777,7 +783,17 @@ export default function GoGoAssistant({
     }
 
     const traditional = resolveGoGoTraditionalTurn(text, lang);
-    if (traditional) {
+    // Safety / org answers still win immediately. Guided-menu free-text does NOT —
+    // published admin Q&A must be able to teach over hardcoded guide copy.
+    const traditionalIsGuard =
+      !!traditional &&
+      (traditional.denied ||
+        traditional.mode === 'guard' ||
+        traditional.source === 'guard' ||
+        traditional.source === 'samsung_source_confirm' ||
+        String(traditional.source || '').startsWith('cs_org'));
+
+    if (traditional && traditionalIsGuard) {
       if (traditional.flowNodeId) {
         appendFlow(traditional.flowNodeId, text);
         return;
@@ -815,6 +831,83 @@ export default function GoGoAssistant({
     try {
       setBusy(true);
       setPose('think');
+      // Published admin catalog beats hardcoded guide free-text + learned memory.
+      // Re-read catalog so an admin edit is picked up without reloading the page.
+      let catalog = adminQaEntries;
+      try {
+        const fresh = await getPublishedGoGoQaEntries();
+        if (Array.isArray(fresh)) {
+          catalog = fresh;
+          setAdminQaEntries(fresh);
+        }
+      } catch {
+        /* keep in-memory catalog */
+      }
+      const adminQa = resolveGoGoAdminQaTurn(text, lang, catalog);
+      if (adminQa?.mode === 'admin_qa' && adminQa.reply) {
+        const pair = prepareGoGoReplyPair(adminQa.reply, lang);
+        setMessages((prev) => {
+          const next = [
+            ...prev,
+            stamp('user', text),
+            stamp('gogo', pair.display, {
+              source: 'admin_qa',
+              mode: 'admin_qa',
+              learnable: false,
+              question: text,
+              expression: adminQa.expression,
+              spoken: adminQa.spoken || pair.spoken,
+            }),
+          ];
+          persistChat(next, lang, nameRef.current);
+          return next;
+        });
+        applyChips(adminQa.chips || GOGO_SMART_CHIPS);
+        setPose(poseFromGoGoState(adminQa.expression) || 'success');
+        void speakReply(pair.display, {
+          force: fromVoice,
+          initialState: adminQa.expression,
+          spoken: adminQa.spoken || pair.spoken,
+        });
+        return;
+      }
+
+      // No admin hit — fall through to guided free-text / org-style traditional replies.
+      if (traditional) {
+        if (traditional.flowNodeId) {
+          appendFlow(traditional.flowNodeId, text);
+          return;
+        }
+        setMessages((prev) => {
+          const next = [
+            ...prev,
+            stamp('user', text),
+            stamp('gogo', traditional.reply, {
+              denied: !!traditional.denied,
+              source: traditional.source,
+              mode: traditional.mode,
+              learnable: !!traditional.learnable,
+              question: traditional.question || text,
+              expression: traditional.expression,
+              spoken: traditional.spoken,
+            }),
+          ];
+          persistChat(next, lang, nameRef.current);
+          return next;
+        });
+        applyChips(traditional.chips || GOGO_SMART_CHIPS);
+        if (traditional.expression) setPose(poseFromGoGoState(traditional.expression) || 'idle');
+        void speakReply(traditional.reply, {
+          force: fromVoice,
+          initialState: traditional.expression || null,
+          spoken: traditional.spoken,
+          segments: traditional.expression
+            ? [{ state: traditional.expression, text: traditional.reply, spoken: traditional.spoken }]
+            : null,
+        });
+        return;
+      }
+
       // Learned memory before any predictive / library guess.
       const learnedEarly = resolveGoGoLearnedTurn(text, lang, learnedEntries);
       if (learnedEarly.mode === 'learned') {
@@ -1315,7 +1408,17 @@ export default function GoGoAssistant({
     }
 
     if (getFlowNode(id)) {
-      appendFlow(id, labels[id] || id);
+      const label = labels[id] || id;
+      // Teachable topic chips use the admin Q&A library the same way typed questions do.
+      const teachableChip =
+        /^(what_|who_are|who_built|scora_more|how_search|how_feedback|how_survey|cs_org|feedback|survey)/.test(
+          id,
+        );
+      if (teachableChip) {
+        void sendSmartMessage(label);
+        return;
+      }
+      appendFlow(id, label);
     }
   };
 

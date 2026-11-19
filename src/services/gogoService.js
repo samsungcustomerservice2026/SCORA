@@ -16,6 +16,7 @@ import {
   setDoc,
   updateDoc,
   addDoc,
+  deleteDoc,
   query,
   limit,
 } from 'firebase/firestore';
@@ -25,6 +26,12 @@ import {
   questionFingerprint,
   nextExpressionAfterMiss,
 } from '../lib/gogoLearning';
+import {
+  goGoQaMergeKey,
+  isPublishedGoGoQa,
+  normalizeGoGoQaEntry,
+  validateGoGoQaEntry,
+} from '../lib/gogoQaCatalog';
 import { GOGO_PRODUCT_SEED, findGoGoProduct, formatGoGoProductAnswer, detectSpecFocus, getUnknownProductReply, getSamsungDataUnavailableReply, toFirebaseProductDoc } from '../lib/gogoSamsungProducts';
 import {
   isWeakProductSpec,
@@ -64,6 +71,8 @@ let learnedCache = null;
 let learnedCacheAt = 0;
 let productsCache = null;
 let productsCacheAt = 0;
+let qaCatalogCache = null;
+let qaCatalogCacheAt = 0;
 
 function localChatKey(visitorId) {
   return `${LOCAL_CHAT_PREFIX}${visitorId}`;
@@ -326,30 +335,28 @@ export async function ensureGoGoKnowledgeSeeded() {
         GOGO_SEED_QA.map((item) =>
           setDoc(doc(qaCol(), item.id), {
             ...item,
+            status: item.status || 'published',
+            priority: item.priority ?? 100,
             createdAt: new Date().toISOString(),
             source: 'seed',
           }),
         ),
       );
     } else {
-      // Keep critical answers current without wiping custom Q&A.
-      // cs_org must upsert so live Firestore matches local hierarchy knowledge.
-      const critical = GOGO_SEED_QA.filter(
-        (item) =>
-          item.id === 'who_built' ||
-          item.id === 'what_is_scora' ||
-          item.id === 'da_av_kpis' ||
-          item.id === 'samsung_highlights' ||
-          item.id === 'cs_org',
-      );
+      // Fill missing seed docs only — never overwrite answers an admin already edited.
       await Promise.all(
-        critical.map((item) =>
-          setDoc(
-            doc(qaCol(), item.id),
-            { ...item, updatedAt: new Date().toISOString(), source: 'seed' },
-            { merge: true },
-          ),
-        ),
+        GOGO_SEED_QA.map(async (item) => {
+          const ref = doc(qaCol(), item.id);
+          const existing = await getDoc(ref);
+          if (existing.exists()) return;
+          await setDoc(ref, {
+            ...item,
+            status: item.status || 'published',
+            priority: item.priority ?? 100,
+            createdAt: new Date().toISOString(),
+            source: 'seed',
+          });
+        }),
       );
     }
     const cultureSnap = await getDocs(query(cultureCol(), limit(1)));
@@ -394,29 +401,75 @@ export async function ensureGoGoKnowledgeSeeded() {
   return !!ok;
 }
 
+function withQaDefaults(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    status: row.status || 'published',
+    priority: Number.isFinite(Number(row.priority)) ? Number(row.priority) : 100,
+    keywords: Array.isArray(row.keywords) ? row.keywords : [],
+  };
+}
+
 function mergeQaWithSeed(remote) {
   const map = new Map();
+  // Seed fills gaps; Firestore / admin rows win so catalog edits stick.
+  GOGO_SEED_QA.forEach((row) => {
+    if (row?.id) map.set(row.id, withQaDefaults({ ...row, source: row.source || 'seed' }));
+  });
   if (Array.isArray(remote)) {
     remote.forEach((row) => {
-      if (row?.id) map.set(row.id, row);
+      if (row?.id) map.set(row.id, withQaDefaults(row));
     });
   }
-  // Local seed wins so language fixes + who_built stay correct even if Firestore is stale.
-  GOGO_SEED_QA.forEach((row) => map.set(row.id, row));
   return Array.from(map.values());
 }
 
+function invalidateQaCatalogCache() {
+  qaCatalogCache = null;
+  qaCatalogCacheAt = 0;
+}
+
 /** Always returns usable Q&A (local seed). Cloud merge is optional and non-blocking. */
-export async function getGoGoQaEntries() {
-  void ensureGoGoKnowledgeSeeded();
-  if (!canAttemptCloud()) return GOGO_SEED_QA;
+export async function getGoGoQaEntries({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && qaCatalogCache && now - qaCatalogCacheAt < 30_000) return qaCatalogCache;
+
+  await ensureGoGoKnowledgeSeeded();
+  if (!canAttemptCloud()) {
+    const local = qaCatalogCache || mergeQaWithSeed([]);
+    qaCatalogCache = local;
+    qaCatalogCacheAt = now;
+    return local;
+  }
 
   const remote = await quietCloud(async () => {
     const snap = await getDocs(qaCol());
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   });
 
-  return mergeQaWithSeed(remote);
+  // If cloud read failed, keep the last good catalog instead of falling back to seed-only.
+  if (!Array.isArray(remote)) {
+    if (qaCatalogCache) {
+      qaCatalogCacheAt = now;
+      return qaCatalogCache;
+    }
+    const local = mergeQaWithSeed([]);
+    qaCatalogCache = local;
+    qaCatalogCacheAt = now;
+    return local;
+  }
+
+  const merged = mergeQaWithSeed(remote);
+  qaCatalogCache = merged;
+  qaCatalogCacheAt = now;
+  return merged;
+}
+
+/** Published catalog rows for live GoGo free-text answering. */
+export async function getPublishedGoGoQaEntries({ force = false } = {}) {
+  const all = await getGoGoQaEntries({ force });
+  return all.filter((row) => isPublishedGoGoQa(row));
 }
 
 export async function getGoGoCultureEntries() {
@@ -541,18 +594,149 @@ export async function saveGoGoChat(visitorId, payload) {
   });
 }
 
-/** Admin/helper: append a curated Q&A entry */
-export async function addGoGoQaEntry(entry) {
+/** Admin: create a curated Q&A entry (auto id). */
+export async function addGoGoQaEntry(entry, { actor = '' } = {}) {
   if (!canAttemptCloud()) {
     throw new Error('GoGo cloud is unreachable right now.');
   }
+  const normalized = normalizeGoGoQaEntry(entry, { actor, source: entry?.source || 'admin' });
+  const { ok, errors } = validateGoGoQaEntry(normalized);
+  if (!ok) throw new Error(errors.join(' '));
+
   await ensureWorkspaceRoot();
-  const docRef = await addDoc(qaCol(), {
-    ...entry,
-    createdAt: new Date().toISOString(),
-    source: entry?.source || 'manual',
-  });
+  const { id: _omit, ...payload } = normalized;
+  const docRef = await addDoc(qaCol(), payload);
+  invalidateQaCatalogCache();
   return docRef.id;
+}
+
+function formatGoGoQaCloudError(err) {
+  const code = String(err?.code || '');
+  if (code.includes('permission-denied') || /insufficient permissions/i.test(String(err?.message || ''))) {
+    return 'Save blocked by Firestore permissions. Sign in as an admin, then run: npm run deploy:firestore-rules';
+  }
+  return err?.message || 'Failed to save GoGo Q&A.';
+}
+
+/** Admin: create or update by document id. */
+export async function saveGoGoQaEntry(entry, { actor = '' } = {}) {
+  if (!canAttemptCloud()) {
+    throw new Error('GoGo cloud is unreachable right now.');
+  }
+  // Human edits must leave seed source so the seed sync never clobbers them.
+  const incomingSource = String(entry?.source || '').trim();
+  const saveSource =
+    incomingSource === 'excel_import' || incomingSource === 'admin' ? incomingSource : 'admin';
+  const actorLabel = String(actor || 'admin').trim().slice(0, 80) || 'admin';
+  const normalized = normalizeGoGoQaEntry(entry, {
+    actor: actorLabel,
+    source: saveSource,
+  });
+  const { ok, errors } = validateGoGoQaEntry(normalized);
+  if (!ok) throw new Error(errors.join(' '));
+
+  try {
+    await ensureWorkspaceRoot();
+    const id =
+      String(entry?.id || '').trim() ||
+      questionFingerprint(normalized.question_en || normalized.question_ar || Date.now());
+    const { id: _omit, createdAt, ...rest } = normalized;
+    const ref = doc(qaCol(), id);
+    const existing = await getDoc(ref);
+    const payload = {
+      ...rest,
+      source: saveSource,
+      createdAt: existing.exists() ? existing.data()?.createdAt || createdAt : createdAt,
+      updatedAt: new Date().toISOString(),
+      updatedBy: actorLabel,
+    };
+    // Firestore rejects undefined field values.
+    Object.keys(payload).forEach((key) => {
+      if (payload[key] === undefined) delete payload[key];
+    });
+    await setDoc(ref, payload, { merge: true });
+    invalidateQaCatalogCache();
+    return id;
+  } catch (err) {
+    throw new Error(formatGoGoQaCloudError(err));
+  }
+}
+
+export async function updateGoGoQaEntry(id, patch, { actor = '' } = {}) {
+  if (!id) throw new Error('Missing Q&A id.');
+  if (!canAttemptCloud()) {
+    throw new Error('GoGo cloud is unreachable right now.');
+  }
+  const existing = await getDoc(doc(qaCol(), id));
+  const prev = existing.exists() ? { id, ...existing.data() } : { id };
+  return saveGoGoQaEntry({ ...prev, ...patch, id }, { actor });
+}
+
+export async function deleteGoGoQaEntry(id) {
+  if (!id) throw new Error('Missing Q&A id.');
+  if (!canAttemptCloud()) {
+    throw new Error('GoGo cloud is unreachable right now.');
+  }
+  try {
+    await deleteDoc(doc(qaCol(), id));
+    invalidateQaCatalogCache();
+    return true;
+  } catch (err) {
+    throw new Error(formatGoGoQaCloudError(err));
+  }
+}
+
+/**
+ * Import / merge Q&A rows by normalized English (or Arabic) question.
+ * Updates existing matches; creates new docs otherwise.
+ */
+export async function importGoGoQaEntries(entries, { actor = '' } = {}) {
+  if (!canAttemptCloud()) {
+    throw new Error('GoGo cloud is unreachable right now.');
+  }
+  const list = Array.isArray(entries) ? entries : [];
+  if (!list.length) return { written: 0, created: 0, updated: 0 };
+
+  await ensureWorkspaceRoot();
+  const existing = await getGoGoQaEntries({ force: true });
+  const byMergeKey = new Map();
+  existing.forEach((row) => {
+    const key = goGoQaMergeKey(row);
+    if (key) byMergeKey.set(key, row);
+  });
+
+  let created = 0;
+  let updated = 0;
+  for (const raw of list) {
+    const normalized = normalizeGoGoQaEntry(raw, {
+      actor,
+      source: raw?.source || 'excel_import',
+    });
+    const { ok } = validateGoGoQaEntry(normalized);
+    if (!ok) continue;
+    const key = goGoQaMergeKey(normalized);
+    const prev = key ? byMergeKey.get(key) : null;
+    if (prev?.id) {
+      await saveGoGoQaEntry(
+        {
+          ...normalized,
+          id: prev.id,
+          createdAt: prev.createdAt,
+          source: normalized.source || prev.source || 'excel_import',
+        },
+        { actor },
+      );
+      updated += 1;
+      byMergeKey.set(key, { ...normalized, id: prev.id });
+    } else {
+      const id = await saveGoGoQaEntry(normalized, { actor });
+      created += 1;
+      if (key) byMergeKey.set(key, { ...normalized, id });
+    }
+  }
+
+  invalidateQaCatalogCache();
+  return { written: created + updated, created, updated };
 }
 
 /**

@@ -295,10 +295,41 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // ΓöÇΓöÇ GoGo ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-    match /gogo_assistant/{document=**} {
+    // --- GoGo AI assistant ---
+    // Workspace root marker + non-QA memory stay writable for visitors.
+    // Curated Q&A catalog is admin-only write so visitors cannot invent answers.
+    match /gogo_assistant/{docId} {
       allow read: if true;
-      allow write: if true; // tighten further when visitor auth exists
+      allow write: if true;
+    }
+    match /gogo_assistant/workspace {
+      allow read: if true;
+      allow write: if true;
+    }
+    match /gogo_assistant/workspace/qa/{qaId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /gogo_assistant/workspace/culture/{cultureId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    match /gogo_assistant/workspace/learned/{learnedId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    match /gogo_assistant/workspace/products/{productId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    match /gogo_assistant/workspace/feedback/{feedbackId} {
+      allow read: if isAdmin();
+      allow create: if true;
+      allow update, delete: if false;
+    }
+    match /gogo_assistant/workspace/chats/{visitorId} {
+      allow read: if true;
+      allow write: if true;
     }
 
     // ΓöÇΓöÇ Samsung KB ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ

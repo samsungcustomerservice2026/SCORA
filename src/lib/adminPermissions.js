@@ -45,7 +45,7 @@ export const MODULE_HINTS = {
   surveyForms: 'Read: see surveys. Write: add, edit, delete and pick the displayed survey.',
   feedback: 'Read: responses & export.',
   quiz: 'Read: reports. Write: create and host games.',
-  knowledge: 'Consultants, tips and product specification (full edit).',
+  knowledge: 'Consultants, tips, product specification and GoGo Q&A (full edit).',
 };
 
 export const DEFAULT_FORM_PERMISSIONS = {

@@ -23,6 +23,7 @@ import {
   detectGoGoOrgRelationIntent,
 } from './gogoOrgAndKpis';
 import { matchLearnedAnswer, buildLearningPromptHints } from './gogoLearning';
+import { matchAdminQaAnswer } from './gogoQaCatalog';
 import { getGsmArenaConfirmReply, isGsmArenaSourceQuestion } from './gogoSamsungProducts';
 import { prepareGoGoReplyPair } from './gogoSpeechText';
 
@@ -178,6 +179,25 @@ export function resolveGoGoTraditionalTurn(text, lang = 'en') {
   }
 
   return null;
+}
+
+/** Published admin catalog hit — beats learned memory on free text. */
+export function resolveGoGoAdminQaTurn(text, lang, qaEntries) {
+  const L = lang === 'ar' ? 'ar' : 'en';
+  const hit = matchAdminQaAnswer(qaEntries, text, L);
+  if (!hit?.answer) return null;
+  const { display, spoken } = pair(hit.answer, L);
+  return {
+    mode: 'admin_qa',
+    source: 'admin_qa',
+    reply: display,
+    spoken,
+    chips: GOGO_SMART_CHIPS,
+    learnable: false,
+    question: text,
+    expression: 'success',
+    adminQaMatch: hit,
+  };
 }
 
 /** Instant learned (traditional memory) hit, or signal generative with learning hints. */

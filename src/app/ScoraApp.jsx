@@ -55,12 +55,14 @@ import AdminAccountsPanel, { EMPTY_ADMIN_FORM, SUPER_ADMIN_AUTHORITY } from '../
 import AdminPortalShell from '../components/admin/AdminPortalShell';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { MotionCard, MotionStage, usePortalLaunch } from '../components/transitions/PortalLaunch';
+import { SCORA_CHALLENGE_LOGO_SRC, SCORA_CHALLENGE_PATHS } from '../constants/scoraChallengePaths';
 import LogTrafficPanel from '../components/admin/LogTrafficPanel';
 import VisitorEngagementPanel from '../components/admin/VisitorEngagementPanel';
 import { StudioStatGrid, StudioPanel, StudioWave } from '../components/admin/reportStudio/ReportStudio';
 import { buildDailySeries } from '../lib/logAnalyticsHelpers';
 import SamsungProductKbPanel from '../components/admin/SamsungProductKbPanel';
 import TechnicalConsultantsPanel from '../components/admin/TechnicalConsultantsPanel';
+import GoGoQaPanel from '../components/admin/GoGoQaPanel';
 import EmployeeAuthModal from '../components/employee/EmployeeAuthModal';
 import EmployeeDashboard from '../components/employee/EmployeeDashboard';
 import ConsultantViewer from '../components/employee/ConsultantViewer';
@@ -6257,7 +6259,7 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
   };
 
   if (isLoading) {
-    return <div className="min-h-screen bg-black text-white flex items-center justify-center font-black animate-pulse uppercase tracking-widest">Initializing TCS Protocol...</div>;
+    return <div className="min-h-screen bg-black text-white flex items-center justify-center font-black animate-pulse uppercase tracking-widest">Syncing SCORA...</div>;
   }
 
   // Never block admin login on Firestore list permissions — Auth is Firebase Auth now.
@@ -6426,7 +6428,7 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                 <p className="text-zinc-500 text-sm font-medium uppercase tracking-widest max-w-md mx-auto">Choose your destination environment to proceed with operations.</p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-10 w-full max-w-5xl px-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-6 lg:gap-10 w-full max-w-6xl px-4">
                 {/* TCS Portal (Engineers) */}
                 <MotionCard index={0}>
                 <button
@@ -6440,14 +6442,14 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                     });
                   }}
                   data-gogo-target="tcs"
-                  className="group relative w-full h-[32rem] rounded-[4.5rem] p-8 md:p-12 flex flex-col items-center justify-center gap-6 md:gap-8 overflow-hidden border border-white/10 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-blue-500/40 transition-colors duration-500 shadow-2xl disabled:opacity-60"
+                  className="group relative w-full min-h-[22rem] md:min-h-[28rem] lg:h-[32rem] rounded-[3.5rem] lg:rounded-[4.5rem] p-8 md:p-10 lg:p-12 flex flex-col items-center justify-center gap-5 md:gap-6 lg:gap-8 overflow-hidden border border-white/10 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-blue-500/40 transition-colors duration-500 shadow-2xl disabled:opacity-60"
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-blue-600/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                  <div className="w-40 h-40 sm:w-48 sm:h-48 rounded-[2.5rem] sm:rounded-[3.5rem] bg-zinc-950 border border-blue-500/20 group-hover:scale-105 transition-transform duration-500 group-hover:shadow-[0_0_60px_rgba(37,99,235,0.3)] overflow-hidden portal-logo-float">
-                    <img src="/fawzy-logo.png" alt="TCS" className="w-full h-full object-contain rounded-[2.5rem] sm:rounded-[3.5rem]" />
+                  <div className="w-36 h-36 sm:w-40 sm:h-40 lg:w-48 lg:h-48 rounded-[2.5rem] sm:rounded-[3rem] lg:rounded-[3.5rem] bg-zinc-950 border border-blue-500/20 group-hover:scale-105 transition-transform duration-500 group-hover:shadow-[0_0_60px_rgba(37,99,235,0.3)] overflow-hidden portal-logo-float">
+                    <img src="/fawzy-logo.png" alt="TCS" className="w-full h-full object-contain rounded-[2.5rem] sm:rounded-[3rem] lg:rounded-[3.5rem]" />
                   </div>
                   <div className="text-center space-y-3 relative z-10">
-                    <h3 className="text-3xl font-black uppercase tracking-tight text-white group-hover:text-blue-400 transition-colors">TCS Portal</h3>
+                    <h3 className="text-2xl lg:text-3xl font-black uppercase tracking-tight text-white group-hover:text-blue-400 transition-colors">TCS Portal</h3>
                     <p className="text-xs font-bold uppercase tracking-widest text-zinc-500">( Engineers )</p>
                   </div>
                 </button>
@@ -6465,15 +6467,41 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                     });
                   }}
                   data-gogo-target="pqa"
-                  className="group relative w-full h-[32rem] rounded-[4.5rem] p-8 md:p-12 flex flex-col items-center justify-center gap-6 md:gap-8 overflow-hidden border border-white/10 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-yellow-500/40 transition-colors duration-500 shadow-2xl disabled:opacity-60"
+                  className="group relative w-full min-h-[22rem] md:min-h-[28rem] lg:h-[32rem] rounded-[3.5rem] lg:rounded-[4.5rem] p-8 md:p-10 lg:p-12 flex flex-col items-center justify-center gap-5 md:gap-6 lg:gap-8 overflow-hidden border border-white/10 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-yellow-500/40 transition-colors duration-500 shadow-2xl disabled:opacity-60"
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                  <div className="w-40 h-40 sm:w-48 sm:h-48 rounded-[2.5rem] sm:rounded-[3.5rem] bg-zinc-950 flex items-center justify-center border border-yellow-500/20 group-hover:scale-105 transition-transform duration-500 group-hover:shadow-[0_0_60px_rgba(234,179,8,0.3)] overflow-hidden portal-logo-float">
-                    <img src="/pqa_logo.png" alt="PQA" className="w-full h-full object-contain rounded-[2.5rem] sm:rounded-[3.5rem]" />
+                  <div className="w-36 h-36 sm:w-40 sm:h-40 lg:w-48 lg:h-48 rounded-[2.5rem] sm:rounded-[3rem] lg:rounded-[3.5rem] bg-zinc-950 flex items-center justify-center border border-yellow-500/20 group-hover:scale-105 transition-transform duration-500 group-hover:shadow-[0_0_60px_rgba(234,179,8,0.3)] overflow-hidden portal-logo-float">
+                    <img src="/pqa_logo.png" alt="PQA" className="w-full h-full object-contain rounded-[2.5rem] sm:rounded-[3rem] lg:rounded-[3.5rem]" />
                   </div>
                   <div className="text-center space-y-3 relative z-10">
-                    <h3 className="text-3xl font-black uppercase tracking-tight text-white group-hover:text-yellow-400 transition-colors">PQA Portal</h3>
+                    <h3 className="text-2xl lg:text-3xl font-black uppercase tracking-tight text-white group-hover:text-yellow-400 transition-colors">PQA Portal</h3>
                     <p className="text-xs font-bold uppercase tracking-widest text-zinc-500">( Service Center )</p>
+                  </div>
+                </button>
+                </MotionCard>
+
+                {/* SCORA Challenge — game PIN join (no portal launch animation) */}
+                <MotionCard index={2}>
+                <button
+                  type="button"
+                  disabled={portalLaunchBusy}
+                  onClick={() => {
+                    window.location.assign(SCORA_CHALLENGE_PATHS.join);
+                  }}
+                  data-gogo-target="challenge"
+                  className="group relative w-full min-h-[22rem] md:min-h-[28rem] lg:h-[32rem] rounded-[3.5rem] lg:rounded-[4.5rem] p-8 md:p-10 lg:p-12 flex flex-col items-center justify-center gap-5 md:gap-6 lg:gap-8 overflow-hidden border border-white/10 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-orange-500/40 transition-colors duration-500 shadow-2xl disabled:opacity-60"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-br from-orange-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                  <div className="w-36 h-36 sm:w-40 sm:h-40 lg:w-48 lg:h-48 rounded-[2.5rem] sm:rounded-[3rem] lg:rounded-[3.5rem] bg-black border border-orange-500/20 group-hover:scale-105 transition-transform duration-500 group-hover:shadow-[0_0_60px_rgba(249,115,22,0.35)] overflow-hidden portal-logo-float">
+                    <img
+                      src={SCORA_CHALLENGE_LOGO_SRC}
+                      alt="SCORA Challenge"
+                      className="h-full w-full scale-[0.92] object-cover object-center"
+                    />
+                  </div>
+                  <div className="text-center space-y-3 relative z-10">
+                    <h3 className="text-2xl lg:text-3xl font-black uppercase tracking-tight text-white group-hover:text-orange-400 transition-colors">SCORA Challenge</h3>
+                    <p className="text-xs font-bold uppercase tracking-widest text-zinc-500">( Enter game code )</p>
                   </div>
                 </button>
                 </MotionCard>
@@ -7943,6 +7971,7 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                     {[
                       { key: 'consultants', label: 'Technical Consultants and Tips' },
                       { key: 'product-spec', label: 'Product Specification' },
+                      { key: 'gogo-qa', label: 'GoGo Q&A' },
                     ].map((t) => (
                       <button
                         key={t.key}
@@ -7952,7 +7981,9 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                           knowledgeBaseSubTab === t.key
                             ? t.key === 'product-spec'
                               ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/30'
-                              : 'bg-cyan-600 text-white shadow-lg shadow-cyan-900/30'
+                              : t.key === 'gogo-qa'
+                                ? 'bg-violet-600 text-white shadow-lg shadow-violet-900/30'
+                                : 'bg-cyan-600 text-white shadow-lg shadow-cyan-900/30'
                             : 'bg-zinc-900 text-zinc-500 border border-white/5 hover:text-white'
                         }`}
                       >
@@ -7970,6 +8001,12 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                   {knowledgeBaseSubTab === 'product-spec' && (
                     <div className="rounded-[2rem] border border-emerald-500/15 bg-zinc-900/35 p-4 md:p-6 lg:p-8 w-full">
                       <SamsungProductKbPanel actor={currentUser.username || currentUser.name || 'admin'} />
+                    </div>
+                  )}
+
+                  {knowledgeBaseSubTab === 'gogo-qa' && (
+                    <div className="rounded-[2rem] border border-violet-500/15 bg-zinc-900/35 p-4 md:p-6 lg:p-8 w-full">
+                      <GoGoQaPanel actor={currentUser.username || currentUser.name || 'admin'} />
                     </div>
                   )}
                 </div>
@@ -10882,6 +10919,10 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
             if (action === 'goto_pqa') {
               setPortalRealm('PQA');
               navigateTo('PQA_DIVISION_SELECTION');
+              return;
+            }
+            if (action === 'goto_challenge' || action === 'goto_quiz' || action === 'goto_scora_challenge') {
+              window.location.assign(SCORA_CHALLENGE_PATHS.join);
               return;
             }
             if (action === 'goto_search') {

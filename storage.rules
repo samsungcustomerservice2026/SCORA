@@ -13,6 +13,12 @@ service firebase.storage {
         );
     }
 
+    // Brand marks (SCORA Challenge logo, etc.)
+    match /branding/{fileName} {
+      allow read: if true;
+      allow write: if isImageUpload();
+    }
+
     // Admin: Sync Division Images (mx.png, da.png, vd.png) — no Firebase Auth in this app
     match /tcs/all-products-images/{fileName} {
       allow read: if true;
