@@ -58,6 +58,7 @@ import { MotionCard, MotionStage, usePortalLaunch } from '../components/transiti
 import { SCORA_CHALLENGE_LOGO_SRC, SCORA_CHALLENGE_PATHS } from '../constants/scoraChallengePaths';
 import LogTrafficPanel from '../components/admin/LogTrafficPanel';
 import VisitorEngagementPanel from '../components/admin/VisitorEngagementPanel';
+import HeaderBrandLogos from '../components/HeaderBrandLogos';
 import { StudioStatGrid, StudioPanel, StudioWave } from '../components/admin/reportStudio/ReportStudio';
 import { buildDailySeries } from '../lib/logAnalyticsHelpers';
 import SamsungProductKbPanel from '../components/admin/SamsungProductKbPanel';
@@ -1497,6 +1498,7 @@ const Header = ({
   onEmployeeSignIn,
   onEmployeeDashboard,
   onEmployeeSignOut,
+  brandReplayKey = 'HOME',
 }) => {
   const showLogo = appMode !== null && !isAdminPortal;
   const isTcs = appMode?.startsWith('TCS');
@@ -1548,12 +1550,13 @@ const Header = ({
   }, [accountMenuOpen]);
 
   return (
-    <header className="sticky top-0 z-[100] px-4 py-4 sm:px-6 md:px-12 md:py-6 bg-black/95 backdrop-blur-3xl border-b border-white/10 animate-in fade-in slide-in-from-top-4 duration-700 overflow-visible">
-      <div className="max-w-[1400px] mx-auto grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 sm:gap-3 md:gap-4 min-h-0 overflow-visible">
-        <div className="flex items-center min-w-0 relative z-[1]">
-          <div className="cursor-pointer group" onClick={onLogoClick || onHome}>
-            <img src="./sam_logo.png" alt="Samsung" className="h-10 md:h-14 w-auto object-contain brightness-110 group-hover:scale-105 transition-transform duration-500" />
-          </div>
+    <header className="sticky top-0 z-[100] pl-2 pr-4 py-4 sm:pl-3 sm:pr-6 md:pl-4 md:pr-12 md:py-6 bg-black/95 backdrop-blur-3xl border-b border-white/10 animate-in fade-in slide-in-from-top-4 duration-700 overflow-hidden">
+      <div className="max-w-[1400px] mx-auto grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 sm:gap-3 md:gap-4 min-h-0">
+        <div className="flex items-center relative z-[1] shrink-0">
+          <HeaderBrandLogos
+            replayKey={brandReplayKey}
+            onClick={onLogoClick || onHome}
+          />
         </div>
         <div className="flex justify-center text-center min-w-0 px-1 overflow-hidden pointer-events-none">
            <p className="text-[9px] sm:text-[10px] md:text-[13px] uppercase tracking-[0.18em] sm:tracking-[0.35em] md:tracking-[0.5em] text-zinc-300 font-extrabold leading-snug truncate max-w-full">
@@ -1631,13 +1634,13 @@ const Header = ({
           )}
           {showLogo && (
             <div
-              className={`rounded-2xl overflow-hidden border-2 border-white/10 shadow-3xl bg-black transition-all duration-700 hover:scale-105 hover:border-white/40 shrink-0 ${
+              className={`rounded-2xl overflow-hidden shadow-3xl bg-black transition-all duration-700 hover:scale-105 shrink-0 flex items-center justify-center ${
                 isTcs
-                  ? 'h-11 w-11 sm:h-12 sm:w-12 md:h-14 md:w-14'
-                  : 'h-16 w-16 md:h-24 md:w-24 rounded-[1.5rem] md:rounded-[2.2rem]'
+                  ? 'h-11 w-11 sm:h-12 sm:w-12 md:h-14 md:w-14 border-0'
+                  : 'h-16 w-16 md:h-24 md:w-24 rounded-[1.5rem] md:rounded-[2.2rem] border-2 border-white/10 hover:border-white/40 p-1'
               }`}
             >
-              <img src={appLogo} alt="App Logo" className="h-full w-full object-cover" />
+              <img src={appLogo} alt="App Logo" className={`h-full w-full object-contain ${isTcs ? 'scale-110' : ''}`} />
             </div>
           )}
         </div>
@@ -6312,6 +6315,7 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
         }}
         appMode={appMode}
         isAdminPortal={isAdminPortal}
+        brandReplayKey={view}
         employeeLoggedIn={employeeLoggedIn}
         employeeLabel={employeeProfile?.gspnId || employeeProfile?.email || 'Profile'}
         onEmployeeSignIn={() => setShowEmployeeAuth(true)}
@@ -6433,20 +6437,17 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                 <MotionCard index={0}>
                 <button
                   type="button"
-                  disabled={portalLaunchBusy}
                   onClick={() => {
-                    launchPortal('tcs', () => {
-                      setPortalRealm('TCS');
-                      if (academySurveyPopupEnabled) setShowSurveyShortcut(true);
-                      navigateTo('TCS_DIVISION_SELECTION');
-                    });
+                    setPortalRealm('TCS');
+                    if (academySurveyPopupEnabled) setShowSurveyShortcut(true);
+                    navigateTo('TCS_DIVISION_SELECTION');
                   }}
                   data-gogo-target="tcs"
-                  className="group relative w-full min-h-[22rem] md:min-h-[28rem] lg:h-[32rem] rounded-[3.5rem] lg:rounded-[4.5rem] p-8 md:p-10 lg:p-12 flex flex-col items-center justify-center gap-5 md:gap-6 lg:gap-8 overflow-hidden border border-white/10 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-blue-500/40 transition-colors duration-500 shadow-2xl disabled:opacity-60"
+                  className="group relative w-full min-h-[22rem] md:min-h-[28rem] lg:h-[32rem] rounded-[3.5rem] lg:rounded-[4.5rem] p-8 md:p-10 lg:p-12 flex flex-col items-center justify-center gap-5 md:gap-6 lg:gap-8 overflow-hidden border border-white/10 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-blue-500/40 transition-colors duration-500 shadow-2xl"
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-blue-600/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                  <div className="w-36 h-36 sm:w-40 sm:h-40 lg:w-48 lg:h-48 rounded-[2.5rem] sm:rounded-[3rem] lg:rounded-[3.5rem] bg-zinc-950 border border-blue-500/20 group-hover:scale-105 transition-transform duration-500 group-hover:shadow-[0_0_60px_rgba(37,99,235,0.3)] overflow-hidden portal-logo-float">
-                    <img src="/fawzy-logo.png" alt="TCS" className="w-full h-full object-contain rounded-[2.5rem] sm:rounded-[3rem] lg:rounded-[3.5rem]" />
+                  <div className="w-36 h-36 sm:w-40 sm:h-40 lg:w-48 lg:h-48 rounded-[2.5rem] sm:rounded-[3rem] lg:rounded-[3.5rem] bg-black border border-blue-500/20 group-hover:scale-105 transition-transform duration-500 group-hover:shadow-[0_0_60px_rgba(37,99,235,0.3)] overflow-hidden portal-logo-float flex items-center justify-center">
+                    <img src="/fawzy-logo.png" alt="TCS" className="w-full h-full object-contain scale-[1.06]" />
                   </div>
                   <div className="text-center space-y-3 relative z-10">
                     <h3 className="text-2xl lg:text-3xl font-black uppercase tracking-tight text-white group-hover:text-blue-400 transition-colors">TCS Portal</h3>
@@ -6459,15 +6460,12 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                 <MotionCard index={1}>
                 <button
                   type="button"
-                  disabled={portalLaunchBusy}
                   onClick={() => {
-                    launchPortal('pqa', () => {
-                      setPortalRealm('PQA');
-                      navigateTo('PQA_DIVISION_SELECTION');
-                    });
+                    setPortalRealm('PQA');
+                    navigateTo('PQA_DIVISION_SELECTION');
                   }}
                   data-gogo-target="pqa"
-                  className="group relative w-full min-h-[22rem] md:min-h-[28rem] lg:h-[32rem] rounded-[3.5rem] lg:rounded-[4.5rem] p-8 md:p-10 lg:p-12 flex flex-col items-center justify-center gap-5 md:gap-6 lg:gap-8 overflow-hidden border border-white/10 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-yellow-500/40 transition-colors duration-500 shadow-2xl disabled:opacity-60"
+                  className="group relative w-full min-h-[22rem] md:min-h-[28rem] lg:h-[32rem] rounded-[3.5rem] lg:rounded-[4.5rem] p-8 md:p-10 lg:p-12 flex flex-col items-center justify-center gap-5 md:gap-6 lg:gap-8 overflow-hidden border border-white/10 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-yellow-500/40 transition-colors duration-500 shadow-2xl"
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                   <div className="w-36 h-36 sm:w-40 sm:h-40 lg:w-48 lg:h-48 rounded-[2.5rem] sm:rounded-[3rem] lg:rounded-[3.5rem] bg-zinc-950 flex items-center justify-center border border-yellow-500/20 group-hover:scale-105 transition-transform duration-500 group-hover:shadow-[0_0_60px_rgba(234,179,8,0.3)] overflow-hidden portal-logo-float">
@@ -6484,19 +6482,18 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                 <MotionCard index={2}>
                 <button
                   type="button"
-                  disabled={portalLaunchBusy}
                   onClick={() => {
                     window.location.assign(SCORA_CHALLENGE_PATHS.join);
                   }}
                   data-gogo-target="challenge"
-                  className="group relative w-full min-h-[22rem] md:min-h-[28rem] lg:h-[32rem] rounded-[3.5rem] lg:rounded-[4.5rem] p-8 md:p-10 lg:p-12 flex flex-col items-center justify-center gap-5 md:gap-6 lg:gap-8 overflow-hidden border border-white/10 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-orange-500/40 transition-colors duration-500 shadow-2xl disabled:opacity-60"
+                  className="group relative w-full min-h-[22rem] md:min-h-[28rem] lg:h-[32rem] rounded-[3.5rem] lg:rounded-[4.5rem] p-8 md:p-10 lg:p-12 flex flex-col items-center justify-center gap-5 md:gap-6 lg:gap-8 overflow-hidden border border-white/10 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-orange-500/40 transition-colors duration-500 shadow-2xl"
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-orange-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                  <div className="w-36 h-36 sm:w-40 sm:h-40 lg:w-48 lg:h-48 rounded-[2.5rem] sm:rounded-[3rem] lg:rounded-[3.5rem] bg-black border border-orange-500/20 group-hover:scale-105 transition-transform duration-500 group-hover:shadow-[0_0_60px_rgba(249,115,22,0.35)] overflow-hidden portal-logo-float">
+                  <div className="w-40 h-40 sm:w-44 sm:h-44 lg:w-52 lg:h-52 rounded-[2.5rem] sm:rounded-[3rem] lg:rounded-[3.5rem] bg-black border border-orange-500/20 group-hover:scale-105 transition-transform duration-500 group-hover:shadow-[0_0_60px_rgba(249,115,22,0.35)] overflow-hidden portal-logo-float flex items-center justify-center p-1.5">
                     <img
                       src={SCORA_CHALLENGE_LOGO_SRC}
                       alt="SCORA Challenge"
-                      className="h-full w-full scale-[0.92] object-cover object-center"
+                      className="h-full w-full scale-110 object-contain"
                     />
                   </div>
                   <div className="text-center space-y-3 relative z-10">
@@ -6536,15 +6533,12 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                 <MotionCard index={0}>
                 <button
                   type="button"
-                  disabled={portalLaunchBusy}
                   onClick={() => {
-                    launchPortal('tcs_mx', () => {
-                      setPortalRealm('TCS');
-                      setAppMode('TCS_MX');
-                      navigateTo('HOME');
-                    });
+                    setPortalRealm('TCS');
+                    setAppMode('TCS_MX');
+                    navigateTo('HOME');
                   }}
-                  className="group relative w-full min-h-[22rem] md:min-h-[28rem] rounded-[4rem] p-10 flex flex-col items-center justify-center gap-8 overflow-hidden border border-white/5 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-purple-500/30 transition-colors duration-500 shadow-2xl disabled:opacity-60"
+                  className="group relative w-full min-h-[22rem] md:min-h-[28rem] rounded-[4rem] p-10 flex flex-col items-center justify-center gap-8 overflow-hidden border border-white/5 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-purple-500/30 transition-colors duration-500 shadow-2xl"
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-purple-600/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                   <div className="w-48 h-48 md:w-56 md:h-56 rounded-[3rem] bg-zinc-950 flex items-center justify-center border border-purple-500/20 group-hover:scale-105 transition-transform duration-500 group-hover:shadow-[0_0_60px_rgba(168,85,247,0.3)] overflow-hidden portal-logo-float">
@@ -6560,15 +6554,12 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                 <MotionCard index={1}>
                 <button
                   type="button"
-                  disabled={portalLaunchBusy}
                   onClick={() => {
-                    launchPortal('tcs_da', () => {
-                      setPortalRealm('TCS');
-                      setAppMode('TCS_DA');
-                      navigateTo('HOME');
-                    });
+                    setPortalRealm('TCS');
+                    setAppMode('TCS_DA');
+                    navigateTo('HOME');
                   }}
-                  className="group relative w-full min-h-[22rem] md:min-h-[28rem] rounded-[4rem] p-10 flex flex-col items-center justify-center gap-8 overflow-hidden border border-white/5 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-amber-500/30 transition-colors duration-500 shadow-2xl disabled:opacity-60"
+                  className="group relative w-full min-h-[22rem] md:min-h-[28rem] rounded-[4rem] p-10 flex flex-col items-center justify-center gap-8 overflow-hidden border border-white/5 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-amber-500/30 transition-colors duration-500 shadow-2xl"
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-amber-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                   <div className="w-48 h-48 md:w-56 md:h-56 rounded-[3rem] bg-zinc-950 flex items-center justify-center border border-amber-500/20 group-hover:scale-105 transition-transform duration-500 group-hover:shadow-[0_0_60px_rgba(245,158,11,0.25)] overflow-hidden portal-logo-float">
@@ -6584,15 +6575,12 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                 <MotionCard index={2}>
                 <button
                   type="button"
-                  disabled={portalLaunchBusy}
                   onClick={() => {
-                    launchPortal('tcs_av', () => {
-                      setPortalRealm('TCS');
-                      setAppMode('TCS_AV');
-                      navigateTo('HOME');
-                    });
+                    setPortalRealm('TCS');
+                    setAppMode('TCS_AV');
+                    navigateTo('HOME');
                   }}
-                  className="group relative w-full min-h-[22rem] md:min-h-[28rem] rounded-[4rem] p-10 flex flex-col items-center justify-center gap-8 overflow-hidden border border-white/5 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-cyan-500/30 transition-colors duration-500 shadow-2xl disabled:opacity-60"
+                  className="group relative w-full min-h-[22rem] md:min-h-[28rem] rounded-[4rem] p-10 flex flex-col items-center justify-center gap-8 overflow-hidden border border-white/5 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-cyan-500/30 transition-colors duration-500 shadow-2xl"
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                   <div className="w-48 h-48 md:w-56 md:h-56 rounded-[3rem] bg-[#3d3d3d] flex items-center justify-center border border-cyan-500/20 group-hover:scale-105 transition-transform duration-500 group-hover:shadow-[0_0_60px_rgba(6,182,212,0.25)] overflow-hidden portal-logo-float">
@@ -6635,15 +6623,12 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                 <MotionCard index={0}>
                 <button
                   type="button"
-                  disabled={portalLaunchBusy}
                   onClick={() => {
-                    launchPortal('pqa_mx', () => {
-                      setPortalRealm('PQA');
-                      setAppMode('PQA_MX');
-                      navigateTo('HOME');
-                    });
+                    setPortalRealm('PQA');
+                    setAppMode('PQA_MX');
+                    navigateTo('HOME');
                   }}
-                  className="group relative w-full h-[32rem] rounded-[4.5rem] p-12 flex flex-col items-center justify-center gap-10 overflow-hidden border border-white/5 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-purple-500/30 transition-colors duration-500 shadow-2xl disabled:opacity-60"
+                  className="group relative w-full h-[32rem] rounded-[4.5rem] p-12 flex flex-col items-center justify-center gap-10 overflow-hidden border border-white/5 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-purple-500/30 transition-colors duration-500 shadow-2xl"
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-purple-600/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                   <div className="w-64 h-64 rounded-[3.5rem] bg-zinc-950 flex items-center justify-center border border-purple-500/20 group-hover:scale-105 transition-transform duration-500 group-hover:shadow-[0_0_60px_rgba(168,85,247,0.3)] overflow-hidden portal-logo-float">
@@ -6659,15 +6644,12 @@ Do you want to UPDATE the existing record? Click OK to update, or Cancel to abor
                 <MotionCard index={1}>
                 <button
                   type="button"
-                  disabled={portalLaunchBusy}
                   onClick={() => {
-                    launchPortal('pqa_ce', () => {
-                      setPortalRealm('PQA');
-                      setAppMode('PQA_CE');
-                      navigateTo('HOME');
-                    });
+                    setPortalRealm('PQA');
+                    setAppMode('PQA_CE');
+                    navigateTo('HOME');
                   }}
-                  className="group relative w-full h-[32rem] rounded-[4.5rem] p-12 flex flex-col items-center justify-center gap-10 overflow-hidden border border-white/5 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-emerald-500/30 transition-colors duration-500 shadow-2xl disabled:opacity-60"
+                  className="group relative w-full h-[32rem] rounded-[4.5rem] p-12 flex flex-col items-center justify-center gap-10 overflow-hidden border border-white/5 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-emerald-500/30 transition-colors duration-500 shadow-2xl"
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                   <div className="w-64 h-64 rounded-[3.5rem] bg-zinc-950 flex items-center justify-center border border-emerald-500/20 group-hover:scale-105 transition-transform duration-500 group-hover:shadow-[0_0_60px_rgba(16,185,129,0.3)] overflow-hidden portal-logo-float">

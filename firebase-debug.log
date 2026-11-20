@@ -1,0 +1,90 @@
+[debug] [2026-11-18T14:55:00.577Z] ----------------------------------------------------------------------
+[debug] [2026-11-18T14:55:00.578Z] Command:       C:\Program Files\nodejs\node.exe F:\Samsung Tools\TCS\TCS full project\fawzy-project\node_modules\firebase-tools\lib\bin\firebase.js deploy --only firestore:rules --project tcs-for-engineers --debug
+[debug] [2026-11-18T14:55:00.579Z] CLI Version:   14.27.0
+[debug] [2026-11-18T14:55:00.579Z] Platform:      win32
+[debug] [2026-11-18T14:55:00.579Z] Node Version:  v24.14.0
+[debug] [2026-11-18T14:55:00.579Z] Time:          Wed Nov 18 2026 16:55:00 GMT+0200 (Eastern European Standard Time)
+[debug] [2026-11-18T14:55:00.579Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-11-18T14:55:00.720Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-11-18T14:55:00.720Z] > authorizing via signed-in user (fawzymaherahmed@gmail.com)
+[debug] [2026-11-18T14:55:00.720Z] [iam] checking project tcs-for-engineers for permissions ["datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get"]
+[debug] [2026-11-18T14:55:00.722Z] Checked if tokens are valid: false, expires at: 1792771031042
+[debug] [2026-11-18T14:55:00.722Z] Checked if tokens are valid: false, expires at: 1792771031042
+[debug] [2026-11-18T14:55:00.723Z] > refreshing access token with scopes: []
+[debug] [2026-11-18T14:55:00.724Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-11-18T14:55:00.724Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-11-18T14:55:01.313Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 400
+[debug] [2026-11-18T14:55:01.313Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-11-18T14:55:01.313Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/tcs-for-engineers:testIamPermissions [none]
+[debug] [2026-11-18T14:55:01.313Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/tcs-for-engineers:testIamPermissions x-goog-quota-user=projects/tcs-for-engineers
+[debug] [2026-11-18T14:55:01.313Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/tcs-for-engineers:testIamPermissions {"permissions":["datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get"]}
+[debug] [2026-11-18T14:55:02.270Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/tcs-for-engineers:testIamPermissions 401
+[debug] [2026-11-18T14:55:02.270Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/tcs-for-engineers:testIamPermissions {"error":{"code":401,"message":"Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project.","status":"UNAUTHENTICATED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"CREDENTIALS_MISSING","metadata":{"method":"google.cloudresourcemanager.v1.Projects.TestIamPermissions","service":"cloudresourcemanager.googleapis.com"}}]}}
+[debug] [2026-11-18T14:55:02.270Z] Got a 401 Unauthenticated error for a call that required authentication. Refreshing tokens.
+[debug] [2026-11-18T14:55:02.270Z] Checked if tokens are valid: false, expires at: 1792771031042
+[debug] [2026-11-18T14:55:02.270Z] Checked if tokens are valid: false, expires at: 1792771031042
+[debug] [2026-11-18T14:55:02.270Z] > refreshing access token with scopes: []
+[debug] [2026-11-18T14:55:02.270Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-11-18T14:55:02.271Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-11-18T14:55:02.341Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 400
+[debug] [2026-11-18T14:55:02.341Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-11-18T14:55:02.342Z] [iam] error while checking permissions, command may fail: Request to https://cloudresourcemanager.googleapis.com/v1/projects/tcs-for-engineers:testIamPermissions had HTTP Error: 401, Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project.
+[info] 
+[info] === Deploying to 'tcs-for-engineers'...
+[info] 
+[info] i  deploying firestore 
+[info] i  firestore: ensuring required API firestore.googleapis.com is enabled... 
+[info] i  firestore: ensuring required API firestore.googleapis.com is enabled... 
+[debug] [2026-11-18T14:55:02.345Z] Checked if tokens are valid: false, expires at: 1792771031042
+[debug] [2026-11-18T14:55:02.345Z] Checked if tokens are valid: false, expires at: 1792771031042
+[debug] [2026-11-18T14:55:02.345Z] > refreshing access token with scopes: []
+[debug] [2026-11-18T14:55:02.345Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-11-18T14:55:02.345Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-11-18T14:55:02.416Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 400
+[debug] [2026-11-18T14:55:02.416Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-11-18T14:55:02.416Z] >>> [apiv2][query] GET https://firestore.googleapis.com/v1/projects/tcs-for-engineers/databases/(default) [none]
+[debug] [2026-11-18T14:55:02.672Z] <<< [apiv2][status] GET https://firestore.googleapis.com/v1/projects/tcs-for-engineers/databases/(default) 401
+[debug] [2026-11-18T14:55:02.672Z] <<< [apiv2][body] GET https://firestore.googleapis.com/v1/projects/tcs-for-engineers/databases/(default) {"error":{"code":401,"message":"Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project.","status":"UNAUTHENTICATED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"CREDENTIALS_MISSING","metadata":{"method":"google.firestore.admin.v1.FirestoreAdmin.GetDatabase","service":"firestore.googleapis.com"}}]}}
+[debug] [2026-11-18T14:55:02.672Z] Got a 401 Unauthenticated error for a call that required authentication. Refreshing tokens.
+[debug] [2026-11-18T14:55:02.673Z] Checked if tokens are valid: false, expires at: 1792771031042
+[debug] [2026-11-18T14:55:02.673Z] Checked if tokens are valid: false, expires at: 1792771031042
+[debug] [2026-11-18T14:55:02.673Z] > refreshing access token with scopes: []
+[debug] [2026-11-18T14:55:02.673Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-11-18T14:55:02.673Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-11-18T14:55:02.741Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 400
+[debug] [2026-11-18T14:55:02.741Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[info] i  cloud.firestore: checking firestore.rules for compilation errors... 
+[debug] [2026-11-18T14:55:02.742Z] Checked if tokens are valid: false, expires at: 1792771031042
+[debug] [2026-11-18T14:55:02.742Z] Checked if tokens are valid: false, expires at: 1792771031042
+[debug] [2026-11-18T14:55:02.742Z] > refreshing access token with scopes: []
+[debug] [2026-11-18T14:55:02.743Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-11-18T14:55:02.743Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-11-18T14:55:02.818Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 400
+[debug] [2026-11-18T14:55:02.818Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-11-18T14:55:02.819Z] >>> [apiv2][query] POST https://firebaserules.googleapis.com/v1/projects/tcs-for-engineers:test [none]
+[debug] [2026-11-18T14:55:02.819Z] >>> [apiv2][body] POST https://firebaserules.googleapis.com/v1/projects/tcs-for-engineers:test [omitted]
+[debug] [2026-11-18T14:55:03.134Z] <<< [apiv2][status] POST https://firebaserules.googleapis.com/v1/projects/tcs-for-engineers:test 401
+[debug] [2026-11-18T14:55:03.134Z] <<< [apiv2][body] POST https://firebaserules.googleapis.com/v1/projects/tcs-for-engineers:test {"error":{"code":401,"message":"Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project.","status":"UNAUTHENTICATED"}}
+[debug] [2026-11-18T14:55:03.134Z] Got a 401 Unauthenticated error for a call that required authentication. Refreshing tokens.
+[debug] [2026-11-18T14:55:03.134Z] Checked if tokens are valid: false, expires at: 1792771031042
+[debug] [2026-11-18T14:55:03.134Z] Checked if tokens are valid: false, expires at: 1792771031042
+[debug] [2026-11-18T14:55:03.134Z] > refreshing access token with scopes: []
+[debug] [2026-11-18T14:55:03.134Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-11-18T14:55:03.135Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-11-18T14:55:03.205Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 400
+[debug] [2026-11-18T14:55:03.205Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[error] 
+[error] Error: Request to https://firebaserules.googleapis.com/v1/projects/tcs-for-engineers:test had HTTP Error: 401, Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project.
+[debug] [2026-11-18T14:55:03.207Z] Error Context: {
+  "body": {
+    "error": {
+      "code": 401,
+      "message": "Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project.",
+      "status": "UNAUTHENTICATED"
+    }
+  },
+  "response": {
+    "statusCode": 401
+  }
+}

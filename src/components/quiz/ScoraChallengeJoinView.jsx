@@ -174,7 +174,7 @@ export default function ScoraChallengeJoinView() {
           <img
             src={SCORA_CHALLENGE_LOGO_SRC}
             alt="SCORA Challenge"
-            className="mx-auto h-20 sm:h-24 md:h-28 w-auto max-w-[min(100%,22rem)] object-contain rounded-xl"
+            className="mx-auto h-28 sm:h-36 md:h-44 w-auto max-w-[min(100%,28rem)] object-contain"
           />
           <h1 className="text-3xl md:text-5xl font-black text-white uppercase tracking-tight">
             {step === 1 ? (lang === 'ar' ? 'انضم للعبة' : 'Join game') : t.nickLabel}

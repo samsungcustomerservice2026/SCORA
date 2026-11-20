@@ -1,0 +1,4 @@
+﻿Drop your SCORA logo animation GIF here as:
+  public/scora_logo_animation.gif
+
+The file Cursor saved from chat was a black JPEG (JFIF), not a GIF.
